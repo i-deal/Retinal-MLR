@@ -70,19 +70,6 @@ def letter_sim(char_1, char_2, l_1, l_2, noise = 1, save_img = False):
 
 # Valerie:
 
-# demo:
-# generates a 1 and a 3 at positions 0 and 7 respectively, no noise is added to the latent representations and the generated image is saved
-pred, prob = letter_sim(char_1 = 1, char_2 = 3, l_1 = 0, l_2 = 7, noise = 1, save_img = True)
-print(vals[pred])
-print(prob)
-# accuracy can be calculated using:
-# true_list = [correct_char] * len(prediction_list)
-# accuracy = accuracy_score(true_list, prediction_list)
-
-# accuracy can be plotted with matplotlib:
-# plt.plot(accuracy_list)
-# plt.show()
-
 # testing this out lolz >.< side note update on github 
 # initialize lists to score accuracy and confidence 
 accuracy_list = []
@@ -110,13 +97,7 @@ for l_1 in range(10):
 
         # store accuracy and confidence 
         accuracy_list.append(accuracy)
-        confidence_list.append(average_confidence)
-        
-
-# add another loop to test each character 100 times 
-# for char_num in range (10):
-# for in range (100):
-        
+        confidence_list.append(average_confidence) 
         
 # plot accuracy
 plt.plot(accuracy_list) 
