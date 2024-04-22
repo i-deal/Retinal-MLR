@@ -67,6 +67,7 @@ def letter_sim(char_1, char_2, l_1, l_2, noise = 1, save_img = False):
         
     return out_pred, out_prob # returns integer index of predicted character in the vals list, estimated confidence using predict_proba
 
+
 # Valerie:
 
 # demo:
@@ -81,3 +82,52 @@ print(prob)
 # accuracy can be plotted with matplotlib:
 # plt.plot(accuracy_list)
 # plt.show()
+
+# testing this out lolz >.< side note update on github 
+# initialize lists to score accuracy and confidence 
+accuracy_list = []
+confidence_list = []
+# define the correct character 
+correct_char = 11
+
+# iterate over different location pairs 
+for l_1 in range(10):
+    for l_2 in range(10):
+        temp_pred = []
+        temp_con = []
+
+        for x in range (100): # test this 
+            # call letter_sim
+            pred, prob = letter_sim(char_1 = 1, char_2 = 3, l_1 = l_1, l_2 = l_2, noise=1, save_img = True)
+            temp_pred.append(pred)
+            temp_con.append(prob)
+
+        # calculate accuracy 
+        true_list = [correct_char] * 100
+        accuracy = accuracy_score(true_list, temp_pred)
+        
+        average_confidence = sum(temp_con) / len (temp_con)
+
+        # store accuracy and confidence 
+        accuracy_list.append(accuracy)
+        confidence_list.append(average_confidence)
+        
+
+# add another loop to test each character 100 times 
+# for char_num in range (10):
+# for in range (100):
+        
+        
+# plot accuracy
+plt.plot(accuracy_list) 
+plt.xlabel("Iteration") 
+plt.ylabel("Accuracy")
+plt.title("Accuracy vs. Iteration")
+plt.show()
+       
+# plot confidence
+plt.plot(confidence_list) 
+plt.xlabel("Iteration") 
+plt.ylabel("Confidence")
+plt.title("Confidence vs. Iteration" )
+plt.show()
