@@ -20,9 +20,9 @@ vals = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E
 
 vae.eval()
 with torch.no_grad():
-    num1 = 21#5#0#1#1#1#1#1 #1 # first char 21
-    num2 = 15#6#1#7#8#9#2#4 #3 # second char 1
-    x1, x2 = 0, 5 # locations for each img
+    num1 = 21#1#1#1#21#5#0#1#1#1#1#1 #1 # first char 21
+    num2 = 1#4#7#3#15#6#1#7#8#9#2#4 #3 # second char 1
+    x1, x2 = 0, 8 # locations for each img
     #colors = torch.randint(low=0, high=10, size=(2,))
 
     # build one hot vectors to be passed to the label networks
@@ -51,11 +51,12 @@ with torch.no_grad():
     l1,l2,z_shape, z_color, z_location = activations(comb_img)
 
     pred_ss = clf_shapeS.predict(z_shape.cpu())
+    pred_proba = clf_shapeS.predict_proba(z_shape.cpu())
 
     recon_shape = vae.decoder_shape(z_shape, 0, 0)
-    utils.save_image(comb_img,'1_3_sim.png')
-    utils.save_image(recon_shape,'1_3_sim_recon.png')
-    utils.save_image(img1,'img1.png')
-    utils.save_image(img2,'img2.png')
+    utils.save_image(comb_img,f'{vals[num1]}_{vals[num2]}_pred_{vals[pred_ss[0].item()]}3.png')
+    utils.save_image(recon_shape,f'{vals[num1]}_{vals[num2]}_sim_recon3.png')
+    utils.save_image(img1,f'{vals[num1]}_img3.png')
+    utils.save_image(img2,f'{vals[num2]}_img3.png')
     print(pred_ss)
     print(vals[pred_ss[0].item()])

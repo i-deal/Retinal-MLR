@@ -20,7 +20,7 @@ mnist_dataset, mnist_skip, mnist_test_dataset = dataset_builder('mnist', 2, None
 mnist_loader = torch.utils.data.DataLoader(dataset=mnist_dataset, batch_size=2, shuffle=True,  drop_last= True)
 vae.eval()
 with torch.no_grad():
-    label = 4
+    label = 35
     print(vals[label])
     data_iter = iter(mnist_loader)
     
@@ -37,6 +37,7 @@ with torch.no_grad():
     # generate shape latents from the labels n = noise
     z_shape_labels = vae_shape_labels(onehot_label, n = 10)
     output, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(img,whichdecode='shape')
+
     z_shape_img = vae.sampling(mu_shape,log_var_shape)
     z_color_img = vae.sampling(mu_color,log_var_color)
 
