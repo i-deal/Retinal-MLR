@@ -15,6 +15,7 @@ import copy
 
 bs = 100
 s_classes = 36
+c_classes = 10
 
 vae_shape_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=16)
 vae_color_labels= VAEcolorlabels(xlabel_dim=10, hlabel_dim=7,  zlabel_dim=16)
