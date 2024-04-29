@@ -140,11 +140,11 @@ class VAE_CNN(nn.Module):
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(64)
         self.conv4 = nn.Conv2d(64, 16, kernel_size=3, stride=2, padding=1, bias=False)
-        self.bn4 = nn.BatchNorm2d(16)  # Latent vectors mu and sigma
+        self.bn4 = nn.BatchNorm2d(16) 
 
         self.fc2 = nn.Linear(int(imgsize / 4) * int(imgsize / 4) * 16, h_dim2)
         self.fc_bn2 = nn.BatchNorm1d(h_dim2) # remove
-        # bottle neck part
+        # bottle neck part  # Latent vectors mu and sigma
         self.fc31 = nn.Linear(h_dim2, z_dim)  # shape
         self.fc32 = nn.Linear(h_dim2, z_dim)
         self.fc33 = nn.Linear(h_dim2, z_dim)  # color
@@ -175,8 +175,8 @@ class VAE_CNN(nn.Module):
         self.skipconv = nn.Conv2d(16,16,kernel_size=1,stride=1,padding =0,bias=False)
 
         # map scalars
-        self.shape_scale = 1.9
-        self.color_scale = 1.8
+        self.shape_scale = 1.3
+        self.color_scale = 2
 
     def encoder(self, x, l):
         h = self.relu(self.bn1(self.conv1(x)))
