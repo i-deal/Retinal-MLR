@@ -26,7 +26,6 @@ from torch.autograd import Variable
 from torchvision.utils import save_image
 from sklearn import svm
 from sklearn.metrics import classification_report, confusion_matrix
-import config
 from IPython.display import Image, display
 import cv2
 from PIL import ImageFilter
@@ -36,7 +35,6 @@ import sys
 import pandas as pd
 from torch.utils.data import DataLoader, Subset
 
-config.init()
 #from config import numcolors
 global numcolors, colorlabels
 from PIL import Image
@@ -61,17 +59,8 @@ folder_path = f'output{modelNumber}' # the output folder for the trained model v
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 
-# reload a saved file
-def load_checkpoint(filepath):
-    checkpoint = torch.load(filepath,device)
-    vae.load_state_dict(checkpoint['state_dict'])
-    for parameter in vae.parameters():
-        parameter.requires_grad = False
-    vae.eval()
-    return vae
-
 #load_checkpoint('output/checkpoint_threeloss_singlegrad200_smfc.pth'.format(modelNumber=modelNumber))
-load_checkpoint('output_emnist_recurr1/checkpoint_300.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
+load_checkpoint('output_emnist_recurr_v1/checkpoint_300.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
 
 #print('Loading the classifiers')
 clf_shapeS=load('classifier_output/ss.joblib')
@@ -93,7 +82,7 @@ colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
 bpsize = 2500         #size of the binding pool
-token_overlap =.4
+token_overlap =0.1
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
 normalize_fact_familiar=1
@@ -108,14 +97,14 @@ hugepermnum=10000
 bigpermnum = 500
 smallpermnum = 100
 
-Fig2aFlag = 1       #binding pool reconstructions   NOTWORKING
+Fig2aFlag = 0       #binding pool reconstructions   NOTWORKING
 fig_new_loc = 0     # reconstruct retina images with digits in the location opposite of training
 fig_loc_compare = 1 # compare retina images with digits in the same location as training and opposite location  
-Fig2bFlag = 1        #novel objects stored and retrieved from memory, one at a time
-Fig2btFlag = 1        #novel objects stored and retrieved from memory, in tokens
-Fig2cFlag = 1       #familiar objects stored and retrieved from memory, using tokens 
+Fig2bFlag = 0        #novel objects stored and retrieved from memory, one at a time
+Fig2btFlag = 0       #novel objects stored and retrieved from memory, in tokens
+Fig2cFlag = 0       #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
-
+Fig2nFlag = 0
     
 bindingtestFlag = 0  #simulating binding shape-color of two items  NOT WORKING
 
@@ -395,6 +384,25 @@ if fig_loc_compare == 1:
 
     print("Images with labels saved successfully.")
 
+if Fig2nFlag==1:
+    print('bengali reconstructions')
+    all_imgs = []
+    imgsize = 28
+    numimg = 7
+
+    #load in some examples of Bengali Characters
+    for i in range (1,numimg+1):
+        img_new = convert_tensor(Image.open(f'current_bengali/{i}_thick.png'))[0:3,:,:]
+        #img_new = Colorize_func(img)   # Currently broken, but would add a color to each
+        all_imgs.append(img_new)
+    all_imgs = torch.stack(all_imgs)
+    imgs = all_imgs.view(-1, 3, imgsize, imgsize).cuda()
+    output, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(all_imgs,whichdecode='skip_cropped')
+    z_img = vae.sampling(mu_shape,log_var_shape)
+    recon_sample = vae.decoder_shape(z_img, 0, 0)
+    out_img = torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize),output,recon_sample],dim=0)
+    utils.save_image(out_img,f'output{modelNumber}/bengali_recon.png',numimg)
+    
 if Fig2bFlag==1:
     all_imgs = []
     print('generating Figure 2b, Novel characters retrieved from memory of L1 and Bottleneck')
