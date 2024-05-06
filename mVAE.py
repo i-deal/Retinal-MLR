@@ -175,7 +175,7 @@ class VAE_CNN(nn.Module):
         self.skipconv = nn.Conv2d(16,16,kernel_size=1,stride=1,padding =0,bias=False)
 
         # map scalars
-        self.shape_scale = 1.3
+        self.shape_scale = 1.9
         self.color_scale = 2
 
     def encoder(self, x, l):
