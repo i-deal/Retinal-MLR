@@ -1,5 +1,6 @@
 # prerequisites
 import torch
+import os
 import numpy as np
 from torchvision import datasets
 from torchvision import transforms as torch_transforms
@@ -7,8 +8,8 @@ from torch.utils import data #.data import #DataLoader, Subset, Dataset
 from random import randint
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 
-colornames = ["red", "blue", "green", "purple", "yellow", "cyan", "orange", "brown", "pink", "white"]
-colorrange = .1
+colornames = ["red", "green", "blue", "purple", "yellow", "cyan", "orange", "brown", "pink", "white"]
+colorrange = .08
 colorvals = [
     [1 - colorrange, colorrange * 1, colorrange * 1],
     [colorrange * 1, 1 - colorrange, colorrange * 1],
@@ -88,6 +89,7 @@ class Dataset(data.Dataset):
         # initialize base dataset
         if type(dataset) == str:
             self.name = dataset
+            self.train = train
             self.dataset = self._build_dataset(dataset, train)
 
         else:
@@ -159,21 +161,33 @@ class Dataset(data.Dataset):
 
         if dataset == 'emnist':
             self.lowercase = list(range(0,10)) + list(range(36,63))
-            self.indices = torch.load('uppercase_ind.pt') #self._filter_indices()
+            if os.path.exists('uppercase_ind_train.pt'):
+                if self.train == True:
+                    self.indices = torch.load('uppercase_ind_train.pt')
+                else:
+                    self.indices = torch.load('uppercase_ind_test.pt') 
+            else:
+                print('indexing emnist dataset:')
+                self.indicies, self.indices = self._filter_indices()
+                print('indexing complete')
     
     def _filter_indices(self):
-        indices = []
+        base_dataset = datasets.EMNIST(root='./data', split='byclass', train=False, transform=torch_transforms.Compose([lambda img: torch_transforms.functional.rotate(img, -90),
+            lambda img: torch_transforms.functional.hflip(img)]), download=True)
+        indices_test = []
         count = {target: 0 for target in list(range(10,36))}
         print('starting indices collection')
-        for i in range(len(self.dataset)):
-            img, target = self.dataset[i]
+        for i in range(len(base_dataset)):
+            img, target = base_dataset[i]
             if target not in self.lowercase and count[target] <= 6000:
-                indices += [i]
+                indices_test += [i]
                 count[target] += 1
         print(count)
-        torch.save(indices, 'uppercase_ind.pt')
+        #torch.save(indices_train, 'uppercase_ind_train.pt')
+        torch.save(indices_test, 'uppercase_ind_test.pt')
         print('saved indices')
-        return indices
+        indices_train = torch.load('uppercase_ind_train.pt')
+        return indices_train, indices_test
 
     def _build_dataset(self, dataset, train=True):
         if dataset == 'mnist':
@@ -204,7 +218,7 @@ class Dataset(data.Dataset):
 
     def __getitem__(self, index):
         image, target = self.dataset[index]
-        if self.name == 'emnist':
+        if self.name == 'emnist' and self.train == True:
             image, target = self.dataset[self.indices[randint(0,len(self.indices)-1)]]
         else:
             target += self.target_dict[self.name][0]

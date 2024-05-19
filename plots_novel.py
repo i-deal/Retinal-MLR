@@ -13,7 +13,7 @@ colornames = ["red", "blue","green","purple","yellow","cyan","orange","brown","p
 
 # prerequisites
 import torch
-from dataset_builder import dataset_builder
+from dataset_builder import Dataset
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
@@ -60,7 +60,7 @@ if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 
 #load_checkpoint('output/checkpoint_threeloss_singlegrad200_smfc.pth'.format(modelNumber=modelNumber))
-load_checkpoint('output_emnist_recurr/checkpoint_300.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
+load_checkpoint('output_emnist_recurr/checkpoint_150.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
 
 #print('Loading the classifiers')
 clf_shapeS=load('classifier_output/ss.joblib')
@@ -82,7 +82,7 @@ colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
 bpsize = 2500         #size of the binding pool
-token_overlap =0.1
+token_overlap =0.25
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
 normalize_fact_familiar=1
@@ -150,8 +150,8 @@ if Fig2aFlag==1:
     bs=numimg #number of images to display in this figure
     nw=2
     bs_testing = numimg # 20000 is the limit
-    train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
-            None,False) 
+    train_loader_noSkip = Dataset('mnist',{'colorize':True}).get_loader(bs)
+    test_loader_noSkip = Dataset('mnist',{'colorize':True},train=False).get_loader(bs)
 
     test_loader_smaller = test_loader_noSkip
     images, shapelabels = next(iter(test_loader_smaller))#peel off a large number of images
@@ -206,8 +206,7 @@ if fig_new_loc == 1:
     retina_size = 100  #how wide is the retina
 
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
-            {},True,{'left':list(range(0,5)),'right':list(range(5,10))}) 
+    train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,{},True,{'left':list(range(0,5)),'right':list(range(5,10))}) 
     
     #Code showing the data loader for how the model was trained, empty dict in 3rd param is for any color:
     '''train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
@@ -282,18 +281,18 @@ if fig_new_loc == 1:
 
 if fig_loc_compare == 1:
     bs = 15
-    train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
-            None,True,{'left':list(range(0,5)),'right':list(range(5,10))})    
+    train_transforms = {'retina':True, 'colorize':True, 'location_targets':{'left':list(range(0,5)),'right':list(range(5,10))}}
+    test_transforms = {'retina':True, 'colorize':True, 'location_targets':{'right':list(range(0,5)),'left':list(range(5,10))}}
+    train_loader_noSkip = Dataset('mnist',train_transforms).get_loader(bs)
+    test_loader_noSkip = Dataset('mnist',test_transforms, train=False).get_loader(bs)
     imgsize = 28
     numimg = 10
     
-    print(type(test_loader_noSkip))
-    
     dataiter_noSkip_test = iter(test_loader_noSkip)
     dataiter_noSkip_train = iter(train_loader_noSkip)
-    skipd = iter(train_loader_skip)
-    skip = skipd.next()
-    print(skip[0].size())
+    #skipd = iter(train_loader_skip)
+    #skip = skipd.next()
+    #print(skip[0].size())
     print(type(dataiter_noSkip_test))
     data_test = dataiter_noSkip_test.next()
     data_train = dataiter_noSkip_train.next()
@@ -484,7 +483,8 @@ if Fig2btFlag==1:
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,0, 0,0,1,0,n,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,n,normalize_fact_novel)
       
-        recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_out_all.view(n,-1), l2_act, 3, 'skip_cropped')        
+        recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_out_all.view(n,-1), l2_act, 3, 'skip_cropped')
+        #recon_layer1_skip= vae.decoder_skip_cropped(0,0,0,l1_out_all)      
         imgmatrix= torch.cat([imgmatrix,recon_layer1_skip],0)
 
         #now pad with empty images
@@ -505,8 +505,7 @@ if Fig2cFlag==1:
     numimg = 7  #how many objects will we use here?
 
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
-            {},True,{'left':list(range(0,5)),'right':list(range(5,10))}) 
+    train_loader_noSkip= Dataset('mnist',{'colorize':True,'retina':True}, train=False).get_loader(numimg)
     
     #Code showing the data loader for how the model was trained, empty dict in 3rd param is for any color:
     '''train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
