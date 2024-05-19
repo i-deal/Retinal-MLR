@@ -156,7 +156,7 @@ class VAE_CNN(nn.Module):
         self.fc4c = nn.Linear(z_dim, h_dim2)  # color
         self.fc4l = nn.Linear(z_dim, l_dim)  # location
         self.fc5 = nn.Linear(h_dim2, int(imgsize/4) * int(imgsize/4) * 16)
-        self.fc8 = nn.Linear(h_dim2, h_dim2)
+        self.fc8 = nn.Linear(h_dim2, h_dim2) #skip conection
 
         self.conv5 = nn.ConvTranspose2d(16, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False)
         self.bn5 = nn.BatchNorm2d(64)
@@ -175,8 +175,8 @@ class VAE_CNN(nn.Module):
         self.skipconv = nn.Conv2d(16,16,kernel_size=1,stride=1,padding =0,bias=False)
 
         # map scalars
-        self.shape_scale = 1.9
-        self.color_scale = 2
+        self.shape_scale = 1.9 #1.9
+        self.color_scale = 2 #2
 
     def encoder(self, x, l):
         h = self.relu(self.bn1(self.conv1(x)))
@@ -330,7 +330,7 @@ class VAE_CNN(nn.Module):
             z_color = self.sampling(mu_color, log_var_color)
 
         elif layernum == 3:
-            hskip = self.fc8(l1)
+            hskip = self.relu(self.fc8(l1))
             mu_shape = self.fc31(l1)
             log_var_shape = self.fc32(l1)
             mu_color = self.fc33(l1)
@@ -562,9 +562,11 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
     vae.train()
     train_loss = 0
     dataiter_noSkip = iter(train_loader_noSkip) # the latent space is trained on EMNIST, MNIST, and f-MNIST
-    m = 6 # number of seperate training decoders used
-    dataiter_emnist_skip= iter(emnist_skip) # The skip connection is trained on pairs from EMNIST, MNIST, and f-MNIST composed on top of each other
-    dataiter_fmnist_skip= iter(fmnist_skip)
+    m = 5 # number of seperate training decoders used
+    if emnist_skip != None and fmnist_skip != None:
+        m=7
+        dataiter_emnist_skip= iter(emnist_skip) # The skip connection is trained on pairs from EMNIST, MNIST, and f-MNIST composed on top of each other
+        dataiter_fmnist_skip= iter(fmnist_skip)
     test_iter = iter(test_loader)
     count = 0
     max_iter = 800
@@ -573,19 +575,20 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
     retinal_loss_train, cropped_loss_train = 0, 0 # loss metrics returned to training.py
     
     for i,j in enumerate(loader):
+        count += 1
         data_noSkip = dataiter_noSkip.next()
-        if count % 9 in [0,1,2,4,5]:
-            data_skip = dataiter_emnist_skip.next()
-        else:
-            data_skip = dataiter_fmnist_skip.next()
+        if count % m == 4 and m == 7:
+            r = random.randint(0,1)
+            if r == 1:
+                data_skip = dataiter_emnist_skip.next()
+            else:
+                data_skip = dataiter_fmnist_skip.next()
         
         data = data_noSkip[0]
-
-        count += 1
         optimizer.zero_grad()
 
-        if epoch > 45: # increase the number of times retinal/location is trained
-           m = 8
+        #if epoch > 45: # increase the number of times retinal/location is trained
+         #  m = 8
         
         if count% m == 0:
             whichdecode_use = 'shape'
@@ -595,22 +598,31 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
             whichdecode_use = 'color'
             keepgrad = ['color']
 
-        elif count% m in [2,7]:
+        elif count% m == 2:
             whichdecode_use = 'location'
             keepgrad = ['location']
 
-        elif count% m in [3,6]:
+        elif count% m == 3:
             whichdecode_use = 'retinal'
-            keepgrad = []
+            keepgrad = [] #all except skip connection
 
         elif count% m == 4:
-            data = data[1] + data_skip[0]
-            whichdecode_use = 'skip_cropped'
-            keepgrad = ['skip']
-
-        else:
             whichdecode_use = 'cropped'
             keepgrad = ['shape', 'color']
+
+        elif count% m == 5:
+            r = random.randint(0,1)
+            if r == 1:
+                data = data_skip[0]
+            else:
+                data = data[1]
+            whichdecode_use = 'skip_cropped'
+            keepgrad = ['skip']
+        
+        else:
+            data = data_skip[0]
+            whichdecode_use = 'skip_cropped'
+            keepgrad = ['skip']
 
         recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(data, whichdecode_use, keepgrad)
             
@@ -649,9 +661,9 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
         )
         if count % 400 == 0:
             progress_out(data_noSkip, epoch, count)
-        elif count % 500 == 0:
-            data = data_noSkip[0][1] + data_skip[0]
-            progress_out(data, epoch, count, skip= True)
+        #elif count % 500 == 0: not for RED GREEN
+         #   data = data_noSkip[0][1] + data_skip[0]
+          #  progress_out(data, epoch, count, skip= True)
         
         if i == max_iter +1:
             break
