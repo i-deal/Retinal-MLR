@@ -38,9 +38,9 @@ mnist_skip = mnist_skip.get_loader(bs)
 
 
 loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]}
-
+seen_labels = {}
 for epoch in range(1, 301):
-    loss_lst = train(epoch, train_loader_noSkip, emnist_skip, mnist_skip, test_loader_noSkip, True)
+    loss_lst, seen_labels = train(epoch, train_loader_noSkip, emnist_skip, mnist_skip, test_loader_noSkip, True, seen_labels)
     
     # save error quantities
     loss_dict['retinal_train'] += [loss_lst[0]]
@@ -54,6 +54,6 @@ for epoch in range(1, 301):
         checkpoint =  {
                  'state_dict': vae.state_dict(),
                  'optimizer' : optimizer.state_dict(),
-                 #'labels': seen_labels
+                 'labels': seen_labels
                       }
         torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_{str(epoch)}.pth')
