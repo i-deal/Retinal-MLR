@@ -558,7 +558,17 @@ def test_loss(test_data, whichdecode = []):
 
     return loss_dict
 
-def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, return_loss = False):
+def update_seen_labels(batch_labels, current_labels):
+    new_label_lst = []
+    for i in range(len(batch_labels)):
+        s = batch_labels[0][i].item() # shape label
+        c = batch_labels[1][i].item() # color label
+        r = batch_labels[2][i].item() # retina location label
+        new_label_lst += [(s, c, r)]
+    seen_labels = set(new_label_lst) | current_labels # creates a new set 
+    return seen_labels
+
+def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, return_loss = False, seen_labels = {}):
     vae.train()
     train_loss = 0
     dataiter_noSkip = iter(train_loader_noSkip) # the latent space is trained on EMNIST, MNIST, and f-MNIST
@@ -576,7 +586,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
     
     for i,j in enumerate(loader):
         count += 1
-        data_noSkip = dataiter_noSkip.next()
+        data_noSkip, batch_labels = dataiter_noSkip.next()
         if count % m == 4 and m == 7:
             r = random.randint(0,1)
             if r == 1:
@@ -584,7 +594,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
             else:
                 data_skip = dataiter_fmnist_skip.next()
         
-        data = data_noSkip[0]
+        data = data_noSkip
         optimizer.zero_grad()
 
         #if epoch > 45: # increase the number of times retinal/location is trained
@@ -654,11 +664,8 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
 
         train_loss += loss.item()
         optimizer.step()
-        loader.set_description(
-            (
-                f'epoch: {epoch}; mse: {loss.item():.5f};'
-            )
-        )
+        loader.set_description((f'epoch: {epoch}; mse: {loss.item():.5f};'))
+        seen_labels - update_seen_labels(batch_labels,seen_labels)
         if count % 400 == 0:
             progress_out(data_noSkip, epoch, count)
         #elif count % 500 == 0: not for RED GREEN
@@ -677,7 +684,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, ret
 
         test_loss_dict = test_loss(test_data, ['retinal', 'cropped'])
     
-        return [retinal_loss_train, test_loss_dict['retinal'], cropped_loss_train, test_loss_dict['cropped']]
+        return [retinal_loss_train, test_loss_dict['retinal'], cropped_loss_train, test_loss_dict['cropped']], seen_labels
 
 #compute avg loss of retinal recon w/ skip, w/o skip, increase fc?
 def test(whichdecode, test_loader_noSkip, test_loader_skip, bs):
