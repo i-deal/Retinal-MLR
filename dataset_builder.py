@@ -5,7 +5,7 @@ import numpy as np
 from torchvision import datasets
 from torchvision import transforms as torch_transforms
 from torch.utils import data #.data import #DataLoader, Subset, Dataset
-from random import randint
+import random
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 
 colornames = ["red", "green", "blue", "purple", "yellow", "cyan", "orange", "brown", "pink", "white"]
@@ -24,7 +24,7 @@ colorvals = [
 ]
 
 class Colorize_specific:
-    def __init__(self, col):   
+    def __init__(self, col):
         self.col = col
 
     def __call__(self, img):
@@ -45,7 +45,7 @@ class Colorize_specific:
 class No_Color_3dim:
     def __init__(self):
         self.x = None
-        
+
     def __call__(self, img):
         np_img = np.array(img, dtype=np.uint8)
         np_img = np.dstack([np_img, np_img, np_img])
@@ -54,36 +54,74 @@ class No_Color_3dim:
         return img
 
 class Translate:
-    def __init__(self, loc, max_width):
+    def __init__(self, scale, loc, max_width, min_width = 28):
         self.max_width = max_width
-        self.pos = torch.zeros((100))
-        self. loc = loc
-    def __call__(self, img):
-        if self.loc == 1:
-            padding_left = randint(0, (self.max_width // 2) - img.size[0])
-            padding_right = self.max_width - img.size[0] - padding_left
-        elif self.loc == 2:
-            padding_left = randint(self.max_width // 2, self.max_width - img.size[0])
-            padding_right = self.max_width - img.size[0] - padding_left   
+        self.min_width = min_width
+        self.max_scale = max_width//2
+        self.pos = torch.zeros(max_width, max_width)
+        self.loc = loc
+        self.scale = scale
 
-        padding = (padding_left, 0, padding_right, 0)
+    def __call__(self, img):
+        if self.scale == 0:
+            scale_val = (random.random()*5)
+            scale_dist = torch.zeros(10)
+            scale_dist[int(scale_val)] = 1
+            width = int(self.min_width + (self.max_width - self.min_width) * (scale_val / 10))
+            height = int(self.min_width + (self.max_width - self.min_width) * (scale_val/ 10))
+            resize = torch_transforms.Resize((width, height))
+            img = resize(img)
+
+        elif self.scale == 1:
+            scale_val = (random.random()*5) +5
+            scale_dist = torch.zeros(10)
+            scale_dist[int(scale_val)] = 1
+            width = int(self.min_width + (self.max_width - self.min_width) * (scale_val / 10))
+            height = int(self.min_width + (self.max_width - self.min_width) * (scale_val/ 10))
+            resize = torch_transforms.Resize((width, height))
+            img = resize(img)
+
+        else:
+            scale_dist = None
+
+        if self.loc == 1:
+            padding_left = int(random.uniform(0, (self.max_width // 2) - img.size[0]))
+            padding_right = self.max_width - img.size[0] - padding_left
+            padding_bottom = random.randint(0, self.max_width - img.size[0])
+            padding_top = self.max_width - img.size[0] - padding_bottom
+
+        elif self.loc == 2:
+            if img.size[0] >= self.max_width//2:
+              x = img.size[0]//2
+            else:
+              x = 0
+            padding_left = int(random.uniform((self.max_width // 2)-x, self.max_width - img.size[0]))
+            padding_right = self.max_width - img.size[0] - padding_left
+            padding_bottom = random.randint(0, self.max_width - img.size[0])
+            padding_top = self.max_width - img.size[0] - padding_bottom
+
+        padding = (padding_left, padding_top, padding_right, padding_bottom)
         pos = self.pos.clone()
-        pos[padding_left] = 1
-        return ImageOps.expand(img, padding), pos
+        pos[padding_left][padding_bottom] = 1
+        return ImageOps.expand(img, padding), pos, scale_dist
 
 class PadAndPosition:
     def __init__(self, transform):
         self.transform = transform
+        self.scale = transform.scale
     def __call__(self, img):
-        new_img, position = self.transform(img)
-        return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position
+        new_img, position, scale_dist = self.transform(img)
+        if self.scale != -1:
+            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position, scale_dist #retinal, crop, position, scale
+        else:
+            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position
 
 class ToTensor:
     def __init__(self):
         self.x = None
     def __call__(self, img):
         return torch_transforms.ToTensor()(img)
-        
+
 class Dataset(data.Dataset):
     def __init__(self, dataset, transforms={}, train=True):
         # initialize base dataset
@@ -94,7 +132,7 @@ class Dataset(data.Dataset):
 
         else:
             raise ValueError('invalid dataset input type')
-        
+
         # initialize retina
         if 'retina' in transforms:
             self.retina = transforms['retina']
@@ -103,23 +141,23 @@ class Dataset(data.Dataset):
 
                 if 'retina_size' in transforms:
                     self.retina_size = transforms['retina_size']
-                
+
                 else:
-                    self.retina_size = 100
-                
+                    self.retina_size = 64
+
                 if 'location_targets' in transforms:
                     self.right_targets = transforms['location_targets']['right']
                     self.left_targets = transforms['location_targets']['left']
-                
+
                 else:
                     self.right_targets = []
                     self.left_targets = []
-       
+
             else:
                 self.retina_size = None
                 self.right_targets = []
                 self.left_targets = []
-        
+
         else:
             self.retina = False
             self.retina_size = None
@@ -129,22 +167,34 @@ class Dataset(data.Dataset):
         # initialize colors
         if 'colorize' in transforms:
             self.colorize = transforms['colorize']
-        
+            self.color_dict = {}
+
+            if self.colorize == True and 'color_targets' in transforms:
+                self.color_dict = {}
+                colors = {}
+                for color in transforms['color_targets']:
+                    for target in transforms['color_targets'][color]:
+                        colors[target] = color
+
+                self.color_dict = colors
+
         else:
             self.colorize = False
-        
-        if 'color_targets' in transforms:
-            self.color_dict = None
-            colors = {}
-            for color in transforms['color_targets']:
-                for target in transforms['color_targets'][color]:
-                    colors[target] = color
-
-            self.color_dict = colors
-        
-        else:
             self.color_dict = {}
-        
+
+        # initialize scaling
+        if 'scale' in transforms:
+            self.scale = transforms['scale']
+
+            if self.scale == True and 'scale_targets' in transforms:
+                self.scale_dict = {}
+                for scale in transforms['scale_targets']:
+                    for target in transforms['scale_targets'][scale]:
+                        self.scale_dict[target] = scale
+
+        else:
+            self.scale = False
+
         # initialize skip connection
         if 'skip' in transforms:
             self.skip = transforms['skip']
@@ -154,10 +204,10 @@ class Dataset(data.Dataset):
                 self.retina = False
         else:
             self.skip = False
-        
+
         self.no_color_3dim = No_Color_3dim()
         self.totensor = ToTensor()
-        self.target_dict = {'mnist':[0,9], 'emnist':[10,35], 'fashion_mnist':[36,45], 'cifar10':[46,55]}        
+        self.target_dict = {'mnist':[0,9], 'emnist':[10,35], 'fashion_mnist':[36,45], 'cifar10':[46,55]}
 
         if dataset == 'emnist':
             self.lowercase = list(range(0,10)) + list(range(36,63))
@@ -165,12 +215,12 @@ class Dataset(data.Dataset):
                 if self.train == True:
                     self.indices = torch.load('uppercase_ind_train.pt')
                 else:
-                    self.indices = torch.load('uppercase_ind_test.pt') 
+                    self.indices = torch.load('uppercase_ind_test.pt')
             else:
                 print('indexing emnist dataset:')
                 self.indicies, self.indices = self._filter_indices()
                 print('indexing complete')
-    
+
     def _filter_indices(self):
         base_dataset = datasets.EMNIST(root='./data', split='byclass', train=False, transform=torch_transforms.Compose([lambda img: torch_transforms.functional.rotate(img, -90),
             lambda img: torch_transforms.functional.hflip(img)]), download=True)
@@ -219,7 +269,7 @@ class Dataset(data.Dataset):
     def __getitem__(self, index):
         image, target = self.dataset[index]
         if self.name == 'emnist' and self.train == True:
-            image, target = self.dataset[self.indices[randint(0,len(self.indices)-1)]]
+            image, target = self.dataset[self.indices[random.randint(0,len(self.indices)-1)]]
         else:
             target += self.target_dict[self.name][0]
         col = None
@@ -231,7 +281,7 @@ class Dataset(data.Dataset):
                 col = self.color_dict[target]
                 transform_list += [Colorize_specific(col)]
             else:
-                col = randint(0,9) # any
+                col = random.randint(0,9) # any
                 transform_list += [Colorize_specific(col)]
         else:
             col = -1
@@ -243,27 +293,37 @@ class Dataset(data.Dataset):
 
         # retina
         if self.retina == True:
+            if self.scale == True:
+                if target in self.scale_dict:
+                    scale = self.scale_dict[target]
+                else:
+                    scale = random.randint(0,1)
+            else:
+                scale = -1
+
             if target in self.left_targets:
-                translation = 1 # left  
+                translation = 1 # left
             elif target in self.right_targets:
                 translation = 2 # right
             else:
-                translation = randint(1,2) #any
-            translate = PadAndPosition(Translate(translation, self.retina_size))
+                translation = random.randint(1,2) #any
+
+            translate = PadAndPosition(Translate(scale, translation, self.retina_size))
             transform_list += [translate]
         else:
+            scale = -1
             translation = -1
             transform_list += [self.totensor]
 
         # labels
-        out_label = (target, col, translation)
+        out_label = (target, col, translation, scale)
         transform = torch_transforms.Compose(transform_list)
         return transform(image), out_label
 
     def get_loader(self, batch_size):
         loader = torch.utils.data.DataLoader(dataset=self, batch_size=batch_size, shuffle=True,  drop_last=True)
         return loader
-    
+
     def all_possible_labels(self):
         # return a list of all possible labels generated by this dataset in order: (shape identity, color, retina location)
         dataset = self.name
@@ -294,5 +354,5 @@ class Dataset(data.Dataset):
             # labels
             target = [col, translation]
             target_dict[i] = target
-        
+
         return target_dict
