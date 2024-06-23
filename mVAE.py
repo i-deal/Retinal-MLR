@@ -173,9 +173,9 @@ class VAE_CNN(nn.Module):
         self.bn8 = nn.BatchNorm2d(3)
 
         # combine recon and location into retina now using fcs 2dconv and recurrence
-        self.fc6 = nn.Linear((imgsize+z_dim)*imgsize*3, 2000)
-        self.fc65 = nn.Linear(2000, 2000) #recurrence layer
-        self.fc7 = nn.Linear(2000, (retina_size**2)*3)
+        self.fc6 = nn.Linear((imgsize*imgsize*3)+z_dim, 3000)
+        self.fc65 = nn.Linear(3000, 3000) #recurrence layer
+        self.fc7 = nn.Linear(3000, (retina_size**2)*3)
 
         self.relu = nn.ReLU()
         self.skipconv = nn.Conv2d(16,16,kernel_size=1,stride=1,padding =0,bias=False)
@@ -186,7 +186,6 @@ class VAE_CNN(nn.Module):
 
     def encoder(self, x, l):
         l = l.view(-1,l_dim)
-        print('here',l.size())
         h = self.relu(self.bn1(self.conv1(x)))
         h = self.relu(self.bn2(self.conv2(h)))
         h = self.relu(self.bn3(self.conv3(h)))
@@ -235,18 +234,18 @@ class VAE_CNN(nn.Module):
         h = torch.sigmoid(h)
         # location vector recon
         l = z_location.detach() #cont. repr of location
-        l = l.view(-1,1,1,self.z_dim)
+        #l = l.view(-1,1,1,self.z_dim)
         l = torch.sigmoid(l)
-        l = l.expand(-1, 3, imgsize, self.z_dim) # reshape to concat
+        #l = l.expand(-1, 3, imgsize, self.z_dim) # reshape to concat
         # shape vector
         #sc = z_scale.detach() #cont. repr of scale
         #sc = sc.view(-1,1,1,self.z_dim)
         #sc = torch.sigmoid(sc)
         #sc = sc.expand(-1, 3, imgsize, self.z_dim) # reshape to concat
         # combine into retina
-        h = torch.cat([h,l], dim = 3)
-
         h = h.view(b_dim,-1)
+        h = torch.cat([h,l], dim = 1)
+        
         #print(h.size())
         #h=h.view(b_dim,-1)
         #print(h.size())
@@ -256,6 +255,7 @@ class VAE_CNN(nn.Module):
         #print(h.size())
         h = self.relu(self.fc65(h))
         #print(h.size())
+        h = self.relu(self.fc65(h))
         h = self.relu(self.fc65(h))
         #print(h.size())
         
@@ -651,7 +651,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
             keepgrad = ['location']
 
         elif count% m == 3:
-            if epoch <= 50:
+            if epoch <= 70:
                 whichdecode_use = 'location'
                 keepgrad = ['location']
             else:
@@ -667,7 +667,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
                 keepgrad = []  
 
         elif count% m == 5:
-            if epoch <= 40:
+            if epoch <= 60:
                 whichdecode_use = 'cropped'
                 keepgrad = ['shape', 'color']
             else:
