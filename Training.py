@@ -2,7 +2,7 @@
 import torch
 import os
 import matplotlib.pyplot as plt
-from mVAE import train, test, vae, optimizer, load_checkpoint
+from mVAE_2dconv_scale import train, test, vae, optimizer, load_checkpoint
 from torch.utils.data import DataLoader, ConcatDataset
 from dataset_builder import Dataset
 
@@ -12,35 +12,37 @@ if not os.path.exists(checkpoint_folder_path):
     os.mkdir(checkpoint_folder_path)
 
 # to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
-# load_checkpoint('CHECKPOINTNAME.pth')
+#load_checkpoint(f'{checkpoint_folder_path}/checkpoint_{str(250)}.pth')
+#print('checkpoint loaded')
 
-bs=100
+bs=300
 
 # trainging datasets, the return loaders flag is False so the datasets can be concated in the dataloader
-emnist_transforms = {'retina':True, 'colorize':True}
-mnist_transforms = {'retina':True, 'colorize':True, 'location_targets':{'left':[0,1,2,3,4],'right':[5,6,7,8,9]}}
+#emnist_transforms = {'retina':True, 'colorize':True}
+mnist_transforms = {'retina':True, 'colorize':True, 'scale':False, 'location_targets':{'left':[0,1,2,3,4],'right':[5,6,7,8,9]}}
+mnist_test_transforms = {'retina':True, 'colorize':True, 'scale':False, 'location_targets':{'right':[0,1,2,3,4],'left':[5,6,7,8,9]}}
 skip_transforms = {'skip':True, 'colorize':True}
 
-emnist_dataset = Dataset('emnist', emnist_transforms)
+#emnist_dataset = Dataset('emnist', emnist_transforms)
 mnist_dataset = Dataset('mnist', mnist_transforms)
 
-emnist_test_dataset = Dataset('emnist', emnist_transforms, train= False)
-mnist_test_dataset = Dataset('mnist', mnist_transforms, train= False)
+#emnist_test_dataset = Dataset('emnist', emnist_transforms, train= False)
+mnist_test_dataset = Dataset('mnist', mnist_test_transforms, train= False)
 
-emnist_skip = Dataset('emnist', skip_transforms)
+#emnist_skip = Dataset('emnist', skip_transforms)
 mnist_skip = Dataset('mnist', skip_transforms)
 
 #concat datasets and init dataloaders
-train_loader_noSkip = torch.utils.data.DataLoader(dataset=ConcatDataset([emnist_dataset, mnist_dataset, mnist_dataset]), batch_size=bs, shuffle=True,  drop_last= True)
-test_loader_noSkip = torch.utils.data.DataLoader(dataset=ConcatDataset([emnist_test_dataset, mnist_test_dataset, mnist_test_dataset]), batch_size=bs, shuffle=True, drop_last=True)
-emnist_skip = torch.utils.data.DataLoader(dataset=ConcatDataset([emnist_skip, mnist_skip, mnist_skip]), batch_size=bs, shuffle=True,  drop_last= True)
+train_loader_noSkip = mnist_dataset.get_loader(bs)
+sample_loader_noSkip = mnist_dataset.get_loader(25)
+test_loader_noSkip = mnist_test_dataset.get_loader(bs)
 mnist_skip = mnist_skip.get_loader(bs)
 
 
-loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]}
+loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]} #torch.load('mvae_loss_data_recurr.pt') #  #
 seen_labels = {}
-for epoch in range(1, 301):
-    loss_lst, seen_labels = train(epoch, train_loader_noSkip, emnist_skip, mnist_skip, test_loader_noSkip, True, seen_labels)
+for epoch in range(1, 2001):
+    loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, sample_loader_noSkip, True, seen_labels)
     
     # save error quantities
     loss_dict['retinal_train'] += [loss_lst[0]]
@@ -50,10 +52,17 @@ for epoch in range(1, 301):
     torch.save(loss_dict, 'mvae_loss_data_recurr.pt')
 
     torch.cuda.empty_cache()
-    if epoch in [50,80,100,150,200,250,300]:
+    if epoch in [50,80,100,150,200,250,300,350,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000]:
         checkpoint =  {
                  'state_dict': vae.state_dict(),
                  'optimizer' : optimizer.state_dict(),
                  'labels': seen_labels
                       }
         torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_{str(epoch)}.pth')
+    else:
+        checkpoint =  {
+            'state_dict': vae.state_dict(),
+            'optimizer' : optimizer.state_dict(),
+            'labels': seen_labels
+                }
+        torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_most_recent.pth')

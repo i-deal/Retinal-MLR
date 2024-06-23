@@ -602,7 +602,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
     dataiter_noSkip = iter(train_loader_noSkip) # the latent space is trained on EMNIST, MNIST, and f-MNIST
     m = 5 # number of seperate training decoders used
     if fmnist_skip != None:
-        m=6
+        m=7
         #dataiter_emnist_skip= iter(emnist_skip) # The skip connection is trained on pairs from EMNIST, MNIST, and f-MNIST composed on top of each other
         dataiter_fmnist_skip= iter(fmnist_skip)
     test_iter = iter(test_loader)
@@ -613,8 +613,8 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
 
     retinal_loss_train, cropped_loss_train = 0, 0 # loss metrics returned to training.py
     
-    if epoch > 51: # increase the number of times retinal/location is trained
-        m = 7
+    if epoch > 201: # increase the number of times retinal/location is trained
+        m = 6
 
     for i,j in enumerate(loader):
         count += 1
@@ -631,19 +631,27 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
         optimizer.zero_grad()
         
         if count% m == 0:
-            whichdecode_use = 'shape'
-            keepgrad = ['shape']
+            if epoch <= 200:
+                whichdecode_use = 'shape'
+                keepgrad = ['shape']
+            else:
+                whichdecode_use = 'retinal'
+                keepgrad = [] 
 
         elif count% m == 1:
-            whichdecode_use = 'color'
-            keepgrad = ['color']
+            if epoch <= 200:
+                whichdecode_use = 'color'
+                keepgrad = ['color']
+            else:
+                whichdecode_use = 'retinal'
+                keepgrad = [] 
 
         elif count% m == 2:
             whichdecode_use = 'location'
             keepgrad = ['location']
 
         elif count% m == 3:
-            if epoch <= 20:
+            if epoch <= 50:
                 whichdecode_use = 'location'
                 keepgrad = ['location']
             else:
@@ -651,10 +659,22 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
                 keepgrad = [] #all except skip connection
 
         elif count% m == 4:
-            whichdecode_use = 'cropped'
-            keepgrad = ['shape', 'color']
+            if epoch <= 200:
+                whichdecode_use = 'cropped'
+                keepgrad = ['shape', 'color']
+            else:
+                whichdecode_use = 'retinal'
+                keepgrad = []  
 
         elif count% m == 5:
+            if epoch <= 40:
+                whichdecode_use = 'cropped'
+                keepgrad = ['shape', 'color']
+            else:
+                whichdecode_use = 'retinal'
+                keepgrad = []
+
+        else:
             r = random.randint(0,1)
             if r == 1:
                 data = data_skip[0]
@@ -663,10 +683,6 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
             whichdecode_use = 'skip_cropped'
             keepgrad = ['skip']
         
-        else:
-            whichdecode_use = 'retinal'
-            keepgrad = []
-
         recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location, mu_scale, log_var_scale = vae(data, whichdecode_use, keepgrad)
             
         if whichdecode_use == 'shape':  # shape
