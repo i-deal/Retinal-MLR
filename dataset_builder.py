@@ -58,7 +58,7 @@ class Translate:
         self.max_width = max_width
         self.min_width = min_width
         self.max_scale = max_width//2
-        self.pos = torch.zeros(max_width, max_width)
+        self.pos = torch.zeros(2, max_width).cuda()
         self.loc = loc
         self.scale = scale
 
@@ -85,7 +85,7 @@ class Translate:
             scale_dist = None
 
         if self.loc == 1:
-            padding_left = int(random.uniform(0, (self.max_width // 2) - img.size[0]))
+            padding_left = int(random.uniform(0, (self.max_width // 2) + (img.size[0]//2))) #include center overlap region +
             padding_right = self.max_width - img.size[0] - padding_left
             padding_bottom = random.randint(0, self.max_width - img.size[0])
             padding_top = self.max_width - img.size[0] - padding_bottom
@@ -95,14 +95,15 @@ class Translate:
               x = img.size[0]//2
             else:
               x = 0
-            padding_left = int(random.uniform((self.max_width // 2)-x, self.max_width - img.size[0]))
+            padding_left = int(random.uniform(((self.max_width // 2) - (img.size[0]//2))-x, self.max_width - img.size[0])) #include center overlap region
             padding_right = self.max_width - img.size[0] - padding_left
             padding_bottom = random.randint(0, self.max_width - img.size[0])
             padding_top = self.max_width - img.size[0] - padding_bottom
 
         padding = (padding_left, padding_top, padding_right, padding_bottom)
         pos = self.pos.clone()
-        pos[padding_left][padding_bottom] = 1
+        pos[0][padding_left] = 1
+        pos[1][padding_bottom] = 1
         return ImageOps.expand(img, padding), pos, scale_dist
 
 class PadAndPosition:
