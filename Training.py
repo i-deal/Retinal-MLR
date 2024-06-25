@@ -1,21 +1,35 @@
 # prerequisites
 import torch
 import os
+import sys
 import matplotlib.pyplot as plt
-from mVAE_2dconv_scale import train, test, vae, optimizer, load_checkpoint
+from mVAE import train, test, vae, optimizer, load_checkpoint
 from torch.utils.data import DataLoader, ConcatDataset
 from dataset_builder import Dataset
 
-checkpoint_folder_path = 'output_emnist_recurr' # the output folder for the trained model versions
+checkpoint_folder_path = 'output_mnist_2drecurr' # the output folder for the trained model versions
 
 if not os.path.exists(checkpoint_folder_path):
     os.mkdir(checkpoint_folder_path)
 
-# to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
-#load_checkpoint(f'{checkpoint_folder_path}/checkpoint_{str(250)}.pth')
-#print('checkpoint loaded')
+if len(sys.argv[1:]) != 0:
+    d = int(sys.argv[1:][0])
+else:
+    d=1
+print(f'Device: {d}')
 
-bs=300
+if torch.cuda.is_available():
+    device = torch.device(f'cuda:{d}')
+    torch.cuda.set_device(d)
+    print('CUDA')
+else:
+    device = 'cpu'
+
+# to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
+load_checkpoint(f'{checkpoint_folder_path}/checkpoint_most_recent.pth', d)
+print('checkpoint loaded')
+
+bs=200
 
 # trainging datasets, the return loaders flag is False so the datasets can be concated in the dataloader
 #emnist_transforms = {'retina':True, 'colorize':True}
@@ -38,10 +52,11 @@ sample_loader_noSkip = mnist_dataset.get_loader(25)
 test_loader_noSkip = mnist_test_dataset.get_loader(bs)
 mnist_skip = mnist_skip.get_loader(bs)
 
+vae.to(device)
 
-loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]} #torch.load('mvae_loss_data_recurr.pt') #  #
+loss_dict = torch.load('mvae_loss_data_recurr.pt') #  #{'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]} #
 seen_labels = {}
-for epoch in range(1, 2001):
+for epoch in range(800, 2001):
     loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, sample_loader_noSkip, True, seen_labels)
     
     # save error quantities
@@ -52,7 +67,7 @@ for epoch in range(1, 2001):
     torch.save(loss_dict, 'mvae_loss_data_recurr.pt')
 
     torch.cuda.empty_cache()
-    if epoch in [50,80,100,150,200,250,300,350,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000]:
+    if epoch in [50,80,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000]:
         checkpoint =  {
                  'state_dict': vae.state_dict(),
                  'optimizer' : optimizer.state_dict(),
