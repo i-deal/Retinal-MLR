@@ -85,7 +85,7 @@ class Translate:
             scale_dist = None
 
         if self.loc == 1:
-            padding_left = int(random.uniform(0, (self.max_width // 2) + (img.size[0]//2))) #include center overlap region +
+            padding_left = int(random.uniform(0, (self.max_width // 2)-(img.size[0]//2))) #include center overlap region +
             padding_right = self.max_width - img.size[0] - padding_left
             padding_bottom = random.randint(0, self.max_width - img.size[0])
             padding_top = self.max_width - img.size[0] - padding_bottom
@@ -95,7 +95,7 @@ class Translate:
               x = img.size[0]//2
             else:
               x = 0
-            padding_left = int(random.uniform(((self.max_width // 2) - (img.size[0]//2))-x, self.max_width - img.size[0])) #include center overlap region
+            padding_left = int(random.uniform((self.max_width // 2)-x, self.max_width - img.size[0])) #include center overlap region
             padding_right = self.max_width - img.size[0] - padding_left
             padding_bottom = random.randint(0, self.max_width - img.size[0])
             padding_top = self.max_width - img.size[0] - padding_bottom
@@ -104,6 +104,7 @@ class Translate:
         pos = self.pos.clone()
         pos[0][padding_left] = 1
         pos[1][padding_bottom] = 1
+        #print(padding_left,padding_bottom)
         return ImageOps.expand(img, padding), pos, scale_dist
 
 class PadAndPosition:
