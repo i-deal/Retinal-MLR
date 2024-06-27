@@ -845,6 +845,7 @@ def image_activations(image, l = None):
     color_act = vae.sampling(mu_color, log_var_color)
     location_act = vae.sampling_location(mu_location, log_var_location)
     return shape_act, color_act, location_act
+#test
 
 def activation_fromBP(L1_activationBP, L2_activationBP, layernum):
     if layernum == 1:
