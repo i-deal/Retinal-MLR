@@ -1,35 +1,20 @@
 import matplotlib.pyplot as plt
-from torch import load, save
-import sys
-
-if len(sys.argv[1:]) != 0:
-    d = int(sys.argv[1:][0])
-else:
-    d=1
+from torch import load
 
 # plot loss data from training
-loss_data = load(f'mvae_loss_data_recurr{d}.pt')
-'''x = len(loss_data['retinal_train'])
-loss_data['retinal_train']= loss_data['retinal_train'][61:x-45]
-loss_data['retinal_test']= loss_data['retinal_test'][61:x-45]
-loss_data['cropped_train'] = loss_data['cropped_train'][:x-45]
-loss_data['cropped_test'] = loss_data['cropped_test'][:x-45]'''
-
-plt.plot(loss_data['retinal_train'][0:], label='Retinal Training Error')
-plt.plot(loss_data['retinal_test'][0:], label='Retinal Test Error')
+loss_data = load('mvae_loss_data_recurr.pt')
+plt.plot(loss_data['retinal_train'], label='Retinal Training Error')
+plt.plot(loss_data['retinal_test'], label='Retinal Test Error')
 plt.ylabel('Error')
 plt.xlabel('Epochs of Training')
 plt.legend()
 plt.title('Retinal Loss Over Epochs of Training')
-plt.show()#plt.savefig('plot_loss_retinal.png')
+plt.show()
 
-#plt.close()
 plt.plot(loss_data['cropped_train'], label='Cropped Training Error')
 plt.plot(loss_data['cropped_test'], label='Cropped Test Error')
 plt.ylabel('Error')
 plt.xlabel('Epochs of Training')
 plt.legend()
 plt.title('Cropped Loss Over Epochs of Training')
-plt.savefig('plot_loss_cropped.png')
-
-#loss_data = save(loss_data,'mvae_loss_data_recurr.pt')
+plt.show()
