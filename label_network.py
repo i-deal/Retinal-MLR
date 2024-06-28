@@ -146,7 +146,7 @@ def train_labels(epoch, train_loader):
                      recon_labels.view(sample_size, 3, 28, 28),
                      recon_shapeOnly.view(sample_size, 3, 28, 28),
                      recon_colorOnly.view(sample_size, 3, 28, 28)], 0),
-                f'sample_training_labels/{str(epoch + 1).zfill(5)}_{str(i).zfill(5)}.png',
+                f'sample_training_labels_red_green/{str(epoch + 1).zfill(5)}_{str(i).zfill(5)}.png',
                 nrow=sample_size,
                 normalize=False,
                 range=(-1, 1),
@@ -214,6 +214,67 @@ def test_outputs(test_loader, n = 0.5):
                      recon_shapeOnly.view(sample_size, 3, 28, 28),
                      recon_colorOnly.view(sample_size, 3, 28, 28)], 0),
                 f'sample_training_labels/labeltest_with_{n}.png',
+                nrow=sample_size,
+                normalize=False,
+                range=(-1, 1),
+            )
+
+def test_opposite_colors(test_loader, n = 0.5):
+        vae_shape_labels.eval()
+        vae_color_labels.eval()
+        vae.eval()
+
+        dataiter = iter(test_loader)
+        image, labels = dataiter.next()
+        labels_for_shape=labels[0].clone()
+        labels_for_color=labels[1].clone()
+              
+        image = image.cuda()
+        labels_shape = labels_for_shape.cuda()
+        input_oneHot = F.one_hot(labels_shape, num_classes=s_classes) # 47 classes in emnist, 10 classes in f-mnist
+        input_oneHot = input_oneHot.float()
+        input_oneHot = input_oneHot.cuda()
+
+        labels_color = labels_for_color  # get the color labels
+        labels_color = labels_color.cuda()
+        color_oneHot = F.one_hot(labels_color, num_classes=10)
+        color_oneHot = color_oneHot.float()
+        color_oneHot = color_oneHot.cuda()
+        
+        n=1
+        z_shape_label = vae_shape_labels(input_oneHot,n)
+        z_color_label = vae_color_labels(color_oneHot)
+
+        z_shape, z_color, z_location = image_activations(image)
+
+        with torch.no_grad():
+                recon_imgs = vae.decoder_cropped(z_shape, z_color,0,0)
+                recon_imgs_shape = vae.decoder_shape(z_shape, z_color,0)
+                recon_imgs_color = vae.decoder_color(z_shape, z_color,0)
+
+                recon_labels = vae.decoder_cropped(z_shape_label, z_color_label,0,0)
+                recon_shapeOnly = vae.decoder_shape(z_shape_label, 0,0)
+                recon_colorOnly = vae.decoder_color(0, z_color_label,0)
+
+                sample_size = 20
+                orig_imgs = image[:sample_size]
+                recon_labels = recon_labels[:sample_size]
+                recon_imgs = recon_imgs[:sample_size]
+                recon_imgs_shape = recon_imgs_shape[:sample_size]
+                recon_imgs_color = recon_imgs_color[:sample_size]
+                recon_shapeOnly = recon_shapeOnly[:sample_size]
+                recon_colorOnly = recon_colorOnly[:sample_size]
+
+        utils.save_image(
+                torch.cat(
+                    [orig_imgs,
+                     recon_imgs.view(sample_size, 3, 28, 28),
+                     recon_imgs_shape.view(sample_size, 3, 28, 28),
+                     recon_imgs_color.view(sample_size, 3, 28, 28),
+                     recon_labels.view(sample_size, 3, 28, 28),
+                     recon_shapeOnly.view(sample_size, 3, 28, 28),
+                     recon_colorOnly.view(sample_size, 3, 28, 28)], 0),
+                f'sample_training_labels_red_green/opposite_color_test.png',
                 nrow=sample_size,
                 normalize=False,
                 range=(-1, 1),

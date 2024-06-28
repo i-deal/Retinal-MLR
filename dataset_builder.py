@@ -1,32 +1,15 @@
 # prerequisites
 import torch
-import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import random
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-from torchvision import datasets, transforms, utils
-from torch.autograd import Variable
-from torchvision.utils import save_image
-from sklearn import svm
-from sklearn.metrics import classification_report, confusion_matrix
-from tqdm import tqdm
-import imageio
 import os
-from torch.utils.data import DataLoader, Subset, Dataset
-from random import randint
+import numpy as np
+from torchvision import datasets
+from torchvision import transforms as torch_transforms
+from torch.utils import data #.data import #DataLoader, Subset, Dataset
+import random
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
-from joblib import dump, load
-import copy
 
-global colorlabels
-numcolors = 0
-
-colornames = ["red", "blue", "green", "purple", "yellow", "cyan", "orange", "brown", "pink", "white"]
-#colorlabels = np.random.randint(0, 10, 1000000)
-colorrange = .1
+colornames = ["red", "green", "blue", "purple", "yellow", "cyan", "orange", "brown", "pink", "white"]
+colorrange = .08
 colorvals = [
     [1 - colorrange, colorrange * 1, colorrange * 1],
     [colorrange * 1, 1 - colorrange, colorrange * 1],
@@ -40,348 +23,338 @@ colorvals = [
     [1-colorrange,1-colorrange,1-colorrange]
 ]
 
-#comment this
-def Colorize_func(img):
-    #global numcolors,colorlabels  
+class Colorize_specific:
+    def __init__(self, col):
+        self.col = col
 
-    #thiscolor = colorlabels[numcolors]  # what base color is this?
-    thiscolor = randint(0,9)  # what base color is this?
+    def __call__(self, img):
+        # col: an int index for which base color is being used
+        rgb = colorvals[self.col]  # grab the rgb for this base color
 
-    rgb = colorvals[thiscolor];  # grab the rgb for this base color
-    #numcolors += 1  # increment the index
-    r_color = rgb[0] + np.random.uniform() * colorrange * 2 - colorrange  # generate a color randomly in the neighborhood of the base color
-    g_color = rgb[1] + np.random.uniform() * colorrange * 2 - colorrange
-    b_color = rgb[2] + np.random.uniform() * colorrange * 2 - colorrange
-    np_img = np.array(img, dtype=np.uint8)
-    np_img = np.dstack([np_img * r_color, np_img * g_color, np_img * b_color])
-    backup = np_img
-    np_img = np_img.astype(np.uint8)
-    img = Image.fromarray(np_img, 'RGB')
-    return img
+        r_color = rgb[0] + np.random.uniform() * colorrange * 2 - colorrange  # generate a color randomly in the neighborhood of the base color
+        g_color = rgb[1] + np.random.uniform() * colorrange * 2 - colorrange
+        b_color = rgb[2] + np.random.uniform() * colorrange * 2 - colorrange
 
-def thecolorlabels(datatype):
-    colornumstart = 0
-    coloridx = range(colornumstart, len(datatype))
-    labelscolor = colorlabels[coloridx]
-    return torch.tensor(labelscolor)
+        np_img = np.array(img, dtype=np.uint8)
+        np_img = np.dstack([np_img * r_color, np_img * g_color, np_img * b_color])
+        np_img = np_img.astype(np.uint8)
+        img = Image.fromarray(np_img, 'RGB')
 
-unloader = transforms.ToPILImage()
-def tensor_to_PIL(tensor):
-    image = tensor.cpu().clone()
-    image = image.squeeze(0)
-    image = unloader(image)
-    return image
+        return img
 
-# datasets (string): mnist, emnist, fashion_mnist, cifar10
-# element_colors (dictionary): assign specific colors to certain elements by labels, random colors will be assigned if None, colors must be integers within 0-9
-# retina (boolean): whether the elements from this dataset are placed into a retina
-# element_locations (dictionary): assign which side of the retina a group of elements will be placed, random sides will be assigned if None
-# return_loader (boolean): whether to return a dataloader object (True) or the dataset object (False)
-def dataset_builder(data_set_flag, bs, element_colors = {}, retina = False, element_locations = {}, return_loader = True, color_labels = False):
-    if element_locations is None:
-        element_locations = {'left':[],'right':[]}
-    
-    retina_size = 100
-    train_dataset = None
-    test_dataset = None
-    train_skip = None
+class No_Color_3dim:
+    def __init__(self):
+        self.x = None
 
-    class Colorize_specific:
-        def __init__(self, col):
-            self.col = col
-        def __call__(self, img):
-            # col: an int index for which base color is being used
-            rgb = colorvals[self.col]  # grab the rgb for this base color
+    def __call__(self, img):
+        np_img = np.array(img, dtype=np.uint8)
+        np_img = np.dstack([np_img, np_img, np_img])
+        np_img = np_img.astype(np.uint8)
+        img = Image.fromarray(np_img, 'RGB')
+        return img
 
-            r_color = rgb[0] + np.random.uniform() * colorrange * 2 - colorrange  # generate a color randomly in the neighborhood of the base color
-            g_color = rgb[1] + np.random.uniform() * colorrange * 2 - colorrange
-            b_color = rgb[2] + np.random.uniform() * colorrange * 2 - colorrange
+class Translate:
+    def __init__(self, scale, loc, max_width, min_width = 28):
+        self.max_width = max_width
+        self.min_width = min_width
+        self.max_scale = max_width//2
+        self.pos = torch.zeros(2, max_width).cuda()
+        self.loc = loc
+        self.scale = scale
 
-            np_img = np.array(img, dtype=np.uint8)
-            np_img = np.dstack([np_img * r_color, np_img * g_color, np_img * b_color])
-            np_img = np_img.astype(np.uint8)
-            img = Image.fromarray(np_img, 'RGB')
+    def __call__(self, img):
+        if self.scale == 0:
+            scale_val = (random.random()*4)
+            scale_dist = torch.zeros(10)
+            scale_dist[int(scale_val)] = 1
+            width = int(self.min_width + (self.max_width - self.min_width) * (scale_val / 10))
+            height = int(self.min_width + (self.max_width - self.min_width) * (scale_val/ 10))
+            resize = torch_transforms.Resize((width, height))
+            img = resize(img)
 
-            return img
-        
-    class translate_to_right:
-        def __init__(self, max_width):
-            self.max_width = max_width
-            self.pos = torch.zeros((100))
-        def __call__(self, img):
-            padding_left = random.randint(self.max_width // 2, self.max_width - img.size[0])
+        elif self.scale == 1:
+            scale_val = (random.random()*4) +4
+            scale_dist = torch.zeros(10)
+            scale_dist[int(scale_val)] = 1
+            width = int(self.min_width + (self.max_width - self.min_width) * (scale_val / 10))
+            height = int(self.min_width + (self.max_width - self.min_width) * (scale_val/ 10))
+            resize = torch_transforms.Resize((width, height))
+            img = resize(img)
+
+        else:
+            scale_dist = None
+
+        if self.loc == 1:
+            padding_left = int(random.uniform(0, (self.max_width // 2)-(img.size[0]//2))) #include center overlap region +
             padding_right = self.max_width - img.size[0] - padding_left
-            padding = (padding_left, 0, padding_right, 0)
-            pos = self.pos.clone()
-            pos[padding_left] = 1
-            return ImageOps.expand(img, padding), pos
+            padding_bottom = random.randint(0, self.max_width - img.size[0])
+            padding_top = self.max_width - img.size[0] - padding_bottom
 
-    class translate_to_left:
-        def __init__(self, max_width):
-            self.max_width = max_width
-            self.pos = torch.zeros((100))
-        def __call__(self, img):
-            padding_left = random.randint(0, (self.max_width // 2) - img.size[0])
+        elif self.loc == 2:
+            if img.size[0] >= self.max_width//2:
+              x = img.size[0]//2
+            else:
+              x = 0
+            padding_left = int(random.uniform((self.max_width // 2)-x, self.max_width - img.size[0])) #include center overlap region
             padding_right = self.max_width - img.size[0] - padding_left
-            padding = (padding_left, 0, padding_right, 0)
-            pos = self.pos.clone()
-            pos[padding_left] = 1
-            return ImageOps.expand(img, padding), pos
+            padding_bottom = random.randint(0, self.max_width - img.size[0])
+            padding_top = self.max_width - img.size[0] - padding_bottom
 
-    class translate_to_any:
-        def __init__(self, max_width):
-            self.max_width = max_width
-            self.pos = torch.zeros((100))
-        def __call__(self, img):
-            padding_left = random.randint(0, self.max_width - img.size[0])
-            padding_right = self.max_width - img.size[0] - padding_left
-            padding = (padding_left, 0, padding_right, 0)
-            pos = self.pos.clone()
-            pos[padding_left] = 1
-            return ImageOps.expand(img, padding), pos
+        padding = (padding_left, padding_top, padding_right, padding_bottom)
+        pos = self.pos.clone()
+        pos[0][padding_left] = 1
+        pos[1][padding_bottom] = 1
+        #print(padding_left,padding_bottom)
+        return ImageOps.expand(img, padding), pos, scale_dist
 
-    class PadAndPosition:
-        def __init__(self, transform):
-            self.transform = transform
-        def __call__(self, img):
-            new_img, position = self.transform(img)
-            return transforms.ToTensor()(new_img), transforms.ToTensor()(img), position
+class PadAndPosition:
+    def __init__(self, transform):
+        self.transform = transform
+        self.scale = transform.scale
+    def __call__(self, img):
+        new_img, position, scale_dist = self.transform(img)
+        if self.scale != -1:
+            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position, scale_dist #retinal, crop, position, scale
+        else:
+            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position
 
-    class CustomTargets(Dataset):
-        def __init__(self, dataset, data_set_flag, color_targets=None):
-            self.lowercase = list(range(0,10)) + list(range(36,63))
-            self.dataset = dataset
-            self.data_set_flag = data_set_flag
-            self.target_dict = {'fashion_mnist':35, 'emnist':0, 'emnist_test':0, 'mnist':0}
-            self.indices = torch.load('uppercase_ind.pt')
-            if data_set_flag == 'emnist_test':
-                self.lowercase = list(range(0,10)) + list(range(36,63))
-                self.indices = torch.load('uppercase_ind_test.pt') #self._filter_indices() #
+class ToTensor:
+    def __init__(self):
+        self.x = None
+    def __call__(self, img):
+        return torch_transforms.ToTensor()(img)
 
-        def _filter_indices(self):
-            indices = []
-            count = {target: 0 for target in list(range(10,36))}
-            print('starting indices collection')
-            for i in range(len(self.dataset)):
-                img, target = self.dataset[i]
-                if target not in self.lowercase and count[target] <= 6000:
-                    indices += [i]
-                    count[target] += 1
-            print(count)
-            torch.save(indices, 'uppercase_ind_test.pt')
-            print('saved indices')
-            return indices
+class Dataset(data.Dataset):
+    def __init__(self, dataset, transforms={}, train=True):
+        # initialize base dataset
+        if type(dataset) == str:
+            self.name = dataset
+            self.train = train
+            self.dataset = self._build_dataset(dataset, train)
 
-        def __len__(self):
-            return len(self.dataset)
+        else:
+            raise ValueError('invalid dataset input type')
 
-        def __getitem__(self, index):
-            if self.data_set_flag == 'emnist':
-                if index >= len(self.indices):
-                    index = randint(0,len(self.indices)-1)
-                index = self.indices[index]
-            
-            elif self.data_set_flag == 'emnist_test':
-                if index >= len(self.indices):
-                    index = randint(0,len(self.indices)-1)
-                index = self.indices[index]
+        # initialize retina
+        if 'retina' in transforms:
+            self.retina = transforms['retina']
 
-            image, target = self.dataset[index]
-            col = randint(0,9)
-            transform = transforms.Compose([Colorize_specific(col = col), transforms.ToTensor()])
-            target = (target + self.target_dict[self.data_set_flag], col)
-            return transform(image), target
+            if self.retina == True:
 
-    class CustomMNIST(Dataset):
-        def __init__(self, dataset, location_targets, color_targets=None, dataset_flag=None):
-            self.dataset = dataset
-            self.dataset_flag = data_set_flag
+                if 'retina_size' in transforms:
+                    self.retina_size = transforms['retina_size']
+
+                else:
+                    self.retina_size = 64
+
+                if 'location_targets' in transforms:
+                    self.right_targets = transforms['location_targets']['right']
+                    self.left_targets = transforms['location_targets']['left']
+
+                else:
+                    self.right_targets = []
+                    self.left_targets = []
+
+            else:
+                self.retina_size = None
+                self.right_targets = []
+                self.left_targets = []
+
+        else:
+            self.retina = False
+            self.retina_size = None
             self.right_targets = []
             self.left_targets = []
-            if 'right' in location_targets:
-                self.right_targets = location_targets['right']
-            if 'left' in location_targets:
-                self.left_targets = location_targets['left']
-            self.translate_left = PadAndPosition(translate_to_left(retina_size))
-            self.translate_right = PadAndPosition(translate_to_right(retina_size))
-            self.translate_any = PadAndPosition(translate_to_any(retina_size))
-            self.color_dict = None
 
-            if data_set_flag == 'emnist':
-                self.lowercase = list(range(0,10)) + list(range(36,63))
-                self.indices = torch.load('uppercase_ind.pt') #self._filter_indices()
+        # initialize colors
+        if 'colorize' in transforms:
+            self.colorize = transforms['colorize']
+            self.color_dict = {}
 
-            if color_targets is not None:
+            if self.colorize == True and 'color_targets' in transforms:
+                self.color_dict = {}
                 colors = {}
-                for color in color_targets:
-                    for target in color_targets[color]:
+                for color in transforms['color_targets']:
+                    for target in transforms['color_targets'][color]:
                         colors[target] = color
 
                 self.color_dict = colors
-        
-        def _filter_indices(self):
-            indices = []
-            count = {target: 0 for target in list(range(10,36))}
-            print('starting indices collection')
-            for i in range(len(self.dataset)):
-                img, target = self.dataset[i]
-                if target not in self.lowercase and count[target] <= 6000:
-                    indices += [i]
-                    count[target] += 1
-            print(count)
-            torch.save(indices, 'uppercase_ind.pt')
-            print('saved indices')
-            return indices
 
-        def __len__(self):
-            return len(self.dataset)
+        else:
+            self.colorize = False
+            self.color_dict = {}
 
-        def __getitem__(self, index):
-            if self.dataset_flag == 'emnist':
-                if index >= len(self.indices):
-                    index = randint(0,len(self.indices)-1)
-                index = self.indices[index]
-            
-            image, target = self.dataset[index]
+        # initialize scaling
+        if 'scale' in transforms:
+            self.scale = transforms['scale']
 
-            # check if a specific location is assigned to this element's class
-            if target in self.right_targets or target in self.left_targets:
-                if target in self.right_targets:
-                    # check if a specific color is assigned to this element's class
-                    if self.color_dict is None or target not in self.color_dict:
-                        transform = transforms.Compose([Colorize_func, self.translate_right])
-                        return transform(image), target
-                    else:
-                        transform = transforms.Compose([Colorize_specific(col = self.color_dict[target]), self.translate_right])
-                        return transform(image), target
+            if self.scale == True and 'scale_targets' in transforms:
+                self.scale_dict = {}
+                for scale in transforms['scale_targets']:
+                    for target in transforms['scale_targets'][scale]:
+                        self.scale_dict[target] = scale
 
+        else:
+            self.scale = False
+
+        # initialize skip connection
+        if 'skip' in transforms:
+            self.skip = transforms['skip']
+
+            if self.skip == True:
+                self.colorize = True
+                self.retina = False
+        else:
+            self.skip = False
+
+        self.no_color_3dim = No_Color_3dim()
+        self.totensor = ToTensor()
+        self.target_dict = {'mnist':[0,9], 'emnist':[10,35], 'fashion_mnist':[36,45], 'cifar10':[46,55]}
+
+        if dataset == 'emnist':
+            self.lowercase = list(range(0,10)) + list(range(36,63))
+            if os.path.exists('uppercase_ind_train.pt'):
+                if self.train == True:
+                    self.indices = torch.load('uppercase_ind_train.pt')
                 else:
-                    # check if a specific color is assigned to this element's class
-                    if self.color_dict is None or target not in self.color_dict:
-                        transform = transforms.Compose([Colorize_func, self.translate_left])
-                        return transform(image), target
-                    else:
-                        transform = transforms.Compose([Colorize_specific(col = self.color_dict[target]), self.translate_left])
-                        return transform(image), target
-
+                    self.indices = torch.load('uppercase_ind_test.pt')
             else:
-                # check if a specific color is assigned to this element's class
-                if self.color_dict is None or target not in self.color_dict:
-                    transform = transforms.Compose([Colorize_func, self.translate_any])
-                    return transform(image), target
-                else:
-                    transform = transforms.Compose([Colorize_specific(col = self.color_dict[target]), self.translate_any])
-                    return transform(image), target
-            
-    if data_set_flag == 'mnist':
-        if retina is True:
-            mnist_dataset = datasets.MNIST(root='./mnist_data/', train=True, transform = None, download=True)
-            train_dataset = CustomMNIST(mnist_dataset, element_locations, element_colors)
-            test_locations = {'right':element_locations['left'], 'left':element_locations['right']}
-            test_dataset = CustomMNIST(mnist_dataset, test_locations, element_colors)
+                print('indexing emnist dataset:')
+                self.indicies, self.indices = self._filter_indices()
+                print('indexing complete')
 
-        elif color_labels is True:
-            mnist_dataset = datasets.MNIST(root='./mnist_data/', train=True, transform = None, download=True)
-            mnist_dataset_test = datasets.MNIST(root='./mnist_data/', train=False, transform = None, download=True)
-            train_dataset = CustomTargets(mnist_dataset, data_set_flag)
-            test_dataset = CustomTargets(mnist_dataset_test, data_set_flag)
+    def _filter_indices(self):
+        base_dataset = datasets.EMNIST(root='./data', split='byclass', train=False, transform=torch_transforms.Compose([lambda img: torch_transforms.functional.rotate(img, -90),
+            lambda img: torch_transforms.functional.hflip(img)]), download=True)
+        indices_test = []
+        count = {target: 0 for target in list(range(10,36))}
+        print('starting indices collection')
+        for i in range(len(base_dataset)):
+            img, target = base_dataset[i]
+            if target not in self.lowercase and count[target] <= 6000:
+                indices_test += [i]
+                count[target] += 1
+        print(count)
+        #torch.save(indices_train, 'uppercase_ind_train.pt')
+        torch.save(indices_test, 'uppercase_ind_test.pt')
+        print('saved indices')
+        indices_train = torch.load('uppercase_ind_train.pt')
+        return indices_train, indices_test
 
-        else:
-            train_dataset = datasets.MNIST(root='./mnist_data/', train=True, transform = transforms.Compose([Colorize_func, transforms.ToTensor()]), download=True)
-            test_dataset = datasets.MNIST(root='./mnist_data/', train=False, transform = transforms.Compose([Colorize_func, transforms.ToTensor()]), download=True)
-        # skip connection datasets
-        train_skip = datasets.MNIST(root='./mnist_data/', train=True,
-                                    transform=transforms.Compose([Colorize_func,transforms.RandomRotation(90), transforms.RandomCrop(size=28, padding= 8), transforms.ToTensor()]), download=True)
-        
-        test_skip = datasets.MNIST(root='./mnist_data/', train=False,
-                                    transform=transforms.Compose([Colorize_func,transforms.RandomRotation(90), transforms.RandomCrop(size=28, padding= 8), transforms.ToTensor()]), download=True)
+    def _build_dataset(self, dataset, train=True):
+        if dataset == 'mnist':
+            base_dataset = datasets.MNIST(root='./mnist_data/', train=train, transform = None, download=True)
 
-    if data_set_flag == 'emnist':
-        split = 'byclass'
-        # EMNIST letters are rotated by 90 degrees and flipped by default, the functional rotate and hflip transforms correct for this
-        if retina is True:
-            emnist_dataset = datasets.EMNIST(root='./data', split=split, train=True, transform=transforms.Compose([lambda img: transforms.functional.rotate(img, -90),
-                    lambda img: transforms.functional.hflip(img)]), download=True)
-            train_dataset = CustomMNIST(emnist_dataset, element_locations, element_colors)
+        elif dataset == 'emnist':
+            split = 'byclass'
+            # raw emnist dataset is rotated and flipped by default, the applied transforms undo that
+            base_dataset = datasets.EMNIST(root='./data', split=split, train=train, transform=torch_transforms.Compose([lambda img: torch_transforms.functional.rotate(img, -90),
+            lambda img: torch_transforms.functional.hflip(img)]), download=True)
 
-            test_locations = {'right':element_locations['left'], 'left':element_locations['right']}
-            test_dataset = CustomMNIST(emnist_dataset, test_locations, element_colors, data_set_flag+'_test')
+        elif dataset == 'fashion_mnist':
+            base_dataset = datasets.FashionMNIST('./fashionmnist_data/', train=train, transform = None, download=True)
 
-        elif color_labels is True:
-            emnist_dataset = datasets.EMNIST(root='./data', split=split, train=True, transform=transforms.Compose([lambda img: transforms.functional.rotate(img, -90),
-                    lambda img: transforms.functional.hflip(img)]), download=True)
-            emnist_dataset_test = datasets.EMNIST(root='./data', split=split, train=False, transform=transforms.Compose([lambda img: transforms.functional.rotate(img, -90),
-                    lambda img: transforms.functional.hflip(img)]), download=True)
-            train_dataset = CustomTargets(emnist_dataset, data_set_flag)
-            test_dataset = CustomTargets(emnist_dataset_test, data_set_flag+'_test')
+        elif dataset== 'cifar10':
+            base_dataset = datasets.CIFAR10(root='./data', train=train, download=True, transform=None)
+
+        elif os.path.exists(dataset):
+            pass
 
         else:
-            train_dataset = datasets.EMNIST(root='./data', split=split, train=True, transform=transforms.Compose([Colorize_func, lambda img: transforms.functional.rotate(img, -90),
-                    lambda img: transforms.functional.hflip(img), transforms.ToTensor()]), download=True)
-            test_dataset = datasets.EMNIST(root='./data', split=split, train=False, transform=transforms.Compose([Colorize_func, lambda img: transforms.functional.rotate(img, -90),
-                    lambda img: transforms.functional.hflip(img), transforms.ToTensor()]), download=True)
-        # skip connection datasets
-        train_skip = datasets.EMNIST(root='./data/', split=split, train=True,
-                                    transform=transforms.Compose([Colorize_func,transforms.RandomRotation(90), transforms.RandomCrop(size=28, padding= 8), transforms.ToTensor()]), download=True)
-        
-        test_skip = datasets.EMNIST(root='./data/', split=split, train=False,
-                                    transform=transforms.Compose([Colorize_func,transforms.RandomRotation(90), transforms.RandomCrop(size=28, padding= 8), transforms.ToTensor()]), download=True)
+            raise ValueError(f'{dataset} is not a valid base dataset')
 
-    elif data_set_flag == 'fashion_mnist':
-        if retina is True:
-            fmnist_dataset = datasets.FashionMNIST('./fashionmnist_data/', train=True, transform = None, download=True)
-            train_dataset = CustomMNIST(fmnist_dataset, element_locations, element_colors)
+        return base_dataset
 
-            test_locations = {'right':element_locations['left'], 'left':element_locations['right']}
-            test_dataset = CustomMNIST(fmnist_dataset, test_locations, element_colors)
-        elif color_labels is True:
-            fmnist_dataset = datasets.FashionMNIST('./fashionmnist_data/', train=True, transform = None, download=True)
-            fmnist_dataset_test = datasets.FashionMNIST('./fashionmnist_data/', train=True, transform = None, download=True)
-            train_dataset = CustomTargets(fmnist_dataset, data_set_flag)
-            test_dataset = CustomTargets(fmnist_dataset_test, data_set_flag)
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        image, target = self.dataset[index]
+        if self.name == 'emnist' and self.train == True:
+            image, target = self.dataset[self.indices[random.randint(0,len(self.indices)-1)]]
         else:
-            train_dataset = datasets.FashionMNIST('./fashionmnist_data/', train=True, transform = transforms.Compose([Colorize_func, transforms.ToTensor()]), download=True)
-            test_dataset = datasets.FashionMNIST('./fashionmnist_data/', train=False, transform = transforms.Compose([Colorize_func, transforms.ToTensor()]), download=True)
+            target += self.target_dict[self.name][0]
+        col = None
+        transform_list = []
+        # append transforms according to transform attributes
+        # color
+        if self.colorize == True:
+            if target in self.color_dict:
+                col = self.color_dict[target]
+                transform_list += [Colorize_specific(col)]
+            else:
+                col = random.randint(0,9) # any
+                transform_list += [Colorize_specific(col)]
+        else:
+            col = -1
+            transform_list += [self.no_color_3dim]
 
         # skip connection dataset
-        train_skip = datasets.FashionMNIST(root='./fashionmnist_data/', train=True,
-                transform=transforms.Compose([Colorize_func, transforms.RandomRotation(90), transforms.RandomCrop(size=28, padding= 8),transforms.ToTensor()]), download=True)
-        
-        train_skip = datasets.FashionMNIST(root='./fashionmnist_data/', train=True,
-                transform=transforms.Compose([Colorize_func, transforms.RandomRotation(90), transforms.RandomCrop(size=28, padding= 8),transforms.ToTensor()]), download=True)
+        if self.skip == True:
+            transform_list += [torch_transforms.RandomRotation(90), torch_transforms.RandomCrop(size=28, padding= 8)]
 
-    elif data_set_flag == 'cifar10':
-        def dataset_with_indices(cls):
-            """
-            Modifies the given Dataset class to return a tuple data, target, index
-            instead of just data, target.
-            """
+        # retina
+        if self.retina == True:
+            if self.scale == True:
+                if target in self.scale_dict:
+                    scale = self.scale_dict[target]
+                else:
+                    scale = random.randint(0,1)
+            else:
+                scale = -1
 
-            def __getitem__(self, index):
-                data, target = cls.__getitem__(self, index)
-                return data, target, index
+            if target in self.left_targets:
+                translation = 1 # left
+            elif target in self.right_targets:
+                translation = 2 # right
+            else:
+                translation = random.randint(1,2) #any
 
-            return type(cls.__name__, (cls,), {
-            '   __getitem__': __getitem__,})
+            translate = PadAndPosition(Translate(scale, translation, self.retina_size))
+            transform_list += [translate]
+        else:
+            scale = -1
+            translation = -1
+            transform_list += [self.totensor]
 
-        #makes a new data set that returns indices
-        CIFAR10windicies = dataset_with_indices(datasets.CIFAR10)
+        # labels
+        out_label = (target, col, translation, scale)
+        transform = torch_transforms.Compose(transform_list)
+        return transform(image), out_label
 
-        train_dataset = CIFAR10windicies(root='./cifar_data/', train=True ,transform=transforms.ToTensor(), download=True)
-        test_dataset = CIFAR10windicies(root='./cifar_data/', train=False, transform=transforms.ToTensor(), download=False)
+    def get_loader(self, batch_size):
+        loader = torch.utils.data.DataLoader(dataset=self, batch_size=batch_size, shuffle=True,  drop_last=True)
+        return loader
 
-    train_loader_noSkip = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=bs, shuffle=True,  drop_last= True)
-    test_loader_noSkip = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=bs, shuffle=True, drop_last=True)
+    def all_possible_labels(self):
+        # return a list of all possible labels generated by this dataset in order: (shape identity, color, retina location)
+        dataset = self.name
+        start = self.target_dict[dataset][0]
+        end = self.target_dict[dataset][1] + 1
+        target_dict = {}
 
-    if data_set_flag == 'cifar10':
-        return train_loader_noSkip, test_loader_noSkip
+        for i in range(start,end):
+            if self.colorize == True:
+                if i in self.color_dict:
+                    col = [self.color_dict[i]]
+                else:
+                    col = [0,9]
+            else:
+                col = [-1]
 
-    train_loader_skip = torch.utils.data.DataLoader(dataset=train_skip, batch_size=bs, shuffle=True,  drop_last= True)
-    test_loader_skip = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=bs, shuffle=False,  drop_last=True)
+            # retina
+            if self.retina == True:
+                if i in self.left_targets:
+                    translation = [1]
+                elif i in self.right_targets:
+                    translation = [2]
+                else:
+                    translation = [1,2]
+            else:
+                translation = [-1]
 
-    if return_loader is True:
-        print('return loader')
-        return train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip
-    
-    else:
-        return train_dataset, train_skip, test_dataset
+            # labels
+            target = [col, translation]
+            target_dict[i] = target
+
+        return target_dict
