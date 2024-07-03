@@ -42,6 +42,8 @@ from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 from joblib import dump, load
 import copy
 
+#torch.set_default_dtype(torch.float64)
+
 # load a saved vae checkpoint
 def load_checkpoint(filepath, d=0):
     if torch.cuda.is_available():
@@ -118,6 +120,7 @@ h_dim1 = 256
 h_dim2 = 128
 z_dim = 8
 l_dim = 64*2 # 2dim (2, retina_size) position
+zl_dim = 3
 sc_dim = 10
 
 # must call the dataset_builder function from a seperate .py file
@@ -152,14 +155,14 @@ class VAE_CNN(nn.Module):
         self.fc32 = nn.Linear(h_dim2, z_dim)
         self.fc33 = nn.Linear(h_dim2, z_dim)  # color
         self.fc34 = nn.Linear(h_dim2, z_dim)
-        self.fc35 = nn.Linear(l_dim, z_dim)  # location
-        self.fc36 = nn.Linear(l_dim, z_dim)
+        self.fc35 = nn.Linear(l_dim, zl_dim)  # location
+        self.fc36 = nn.Linear(l_dim, zl_dim)
         self.fc37 = nn.Linear(sc_dim, z_dim)  # scale
         self.fc38 = nn.Linear(sc_dim, z_dim)
         # decoder part
         self.fc4s = nn.Linear(z_dim, h_dim2)  # shape
         self.fc4c = nn.Linear(z_dim, h_dim2)  # color
-        self.fc4l = nn.Linear(z_dim, l_dim)  # location
+        self.fc4l = nn.Linear(zl_dim, l_dim)  # location
         self.fc4sc = nn.Linear(z_dim, sc_dim)  # scale
 
         self.fc5 = nn.Linear(h_dim2, int(imgsize/4) * int(imgsize/4) * 16)
@@ -175,7 +178,7 @@ class VAE_CNN(nn.Module):
         self.bn8 = nn.BatchNorm2d(3)
 
         # combine recon and location into retina now using fcs 2dconv and recurrence
-        self.fc6 = nn.Linear((imgsize*imgsize*3)+z_dim, 4000)
+        self.fc6 = nn.Linear((imgsize*imgsize*3)+zl_dim, 4000)
         self.fc65 = nn.Linear(4000,4000)#recurrence layer
         self.fc7 = nn.Linear(4000, (retina_size**2)*3)
 
@@ -184,7 +187,7 @@ class VAE_CNN(nn.Module):
 
         # map scalars
         self.shape_scale = 1 #1.9
-        self.color_scale = 1.2 #2
+        self.color_scale = 1 #2
 
     def encoder(self, x, l):
         l = l.view(-1,l_dim)
@@ -208,7 +211,7 @@ class VAE_CNN(nn.Module):
 
     def sampling(self, mu, log_var):
         std = torch.exp(0.5 * log_var)
-        eps = torch.randn_like(std)
+        eps = torch.randn_like(std)  #*5
         return mu + eps * std
 
     def decoder_location(self, z_shape, z_color, z_location):
@@ -622,25 +625,19 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
         #dataiter_emnist_skip= iter(emnist_skip) # The skip connection is trained on pairs from EMNIST, MNIST, and f-MNIST composed on top of each other
         dataiter_fmnist_skip= iter(fmnist_skip)
     test_iter = iter(test_loader)
-    sample_iter = iter(sample_loader)
+    #sample_iter = iter(sample_loader)
     count = 0
-    max_iter = 300
+    max_iter = 600
     loader=tqdm(train_loader_noSkip, total = max_iter)
 
     retinal_loss_train, cropped_loss_train = 0, 0 # loss metrics returned to training.py
-    
-    if epoch > 201: # increase the number of times retinal/location is trained
+
+    if epoch >= 250:
         m = 6
 
     for i,j in enumerate(loader):
         count += 1
         data_noSkip, batch_labels = next(dataiter_noSkip)
-        if count % m == 4:
-            #r = random.randint(0,1)
-            #if r == 1:
-             #   data_skip = dataiter_emnist_skip.next()
-            #else:
-            data_skip = next(dataiter_fmnist_skip)
     
         data = data_noSkip
         
@@ -675,20 +672,29 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
                 keepgrad = [] #all except skip connection
 
         elif count% m == 4:
-            if epoch % 4 == 0:
-                r = random.randint(0,2)
+            if epoch >=100: #epoch % 8 != 0 and epoch >= 100:
+                whichdecode_use = 'retinal'
+                keepgrad = []
+            else:
+                r = random.randint(0,4)
                 if r == 1:
                     whichdecode_use = 'shape'
                     keepgrad = ['shape']
                 elif r == 2:
                     whichdecode_use = 'color'
                     keepgrad = ['color']
-                else:
+                elif r == 3:
                     whichdecode_use = 'cropped'
                     keepgrad = ['shape', 'color']
-            else:
-                whichdecode_use = 'retinal'
-                keepgrad = []  
+                else:
+                    data_skip = next(dataiter_fmnist_skip)
+                    r = random.randint(0,1)
+                    if r == 1:
+                        data = data_skip[0]
+                    else:
+                        data = data[1]
+                    whichdecode_use = 'skip_cropped'
+                    keepgrad = ['skip']
 
         elif count% m == 5:
             if epoch <= 100:
@@ -699,6 +705,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
                 keepgrad = []
 
         else:
+            data_skip = next(dataiter_fmnist_skip)
             r = random.randint(0,1)
             if r == 1:
                 data = data_skip[0]
@@ -743,9 +750,9 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
         optimizer.step()
         loader.set_description((f'epoch: {epoch}; mse: {loss.item():.5f};'))
         seen_labels = update_seen_labels(batch_labels,seen_labels)
-        if count % (0.8*max_iter) == 0:
-            data, labels = next(sample_iter)
-            progress_out(data, epoch, count)
+        #if count % (0.8*max_iter) == 0:
+          #  data, labels = next(sample_iter)
+           # progress_out(data, epoch, count)
         #elif count % 500 == 0: not for RED GREEN
          #   data = data_noSkip[0][1] + data_skip[0]
           #  progress_out(data, epoch, count, skip= True)
@@ -876,7 +883,7 @@ def BPTokens_storage(bpsize, bpPortion,l1_act, l2_act, shape_act, color_act, loc
     shape_fw = torch.randn(bp_in_shape_dim,
                             bpsize).cuda()  # make the randomized fixed weights to the binding pool
     color_fw = torch.randn(bp_in_color_dim, bpsize).cuda()
-    location_fw = torch.randn(bp_in_color_dim, bpsize).cuda()
+    location_fw = torch.randn(bp_in_location_dim, bpsize).cuda()
     L1_fw = torch.randn(bp_in_L1_dim, bpsize).cuda()
     L2_fw = torch.randn(bp_in_L2_dim, bpsize).cuda()
 
@@ -948,7 +955,7 @@ def BPTokens_retrieveByToken( bpsize, bpPortion, BP_in_items,tokenBindings, l1_a
         L2_out_eachimg = torch.mm(BP_in_items[items, :].view(1, -1),L2_fw.t()).cuda()  # do the actual reconstruction
         L2_out_all[items, :] = L2_out_eachimg / bpPortion  #
 
-        shape_out_eachimg = torch.mm(BP_in_items[items, :].view(1, -1),shape_fw.t()).cuda()  # do the actual reconstruction
+        shape_out_eachimg = torch.mm(BP_in_items[items, :].view(1, -1), shape_fw.t()).cuda()  # do the actual reconstruction
         color_out_eachimg = torch.mm(BP_in_items[items, :].view(1, -1), color_fw.t()).cuda()
         location_out_eachimg = torch.mm(BP_in_items[items, :].view(1, -1), location_fw.t()).cuda()
         shape_out_all[items, :] = shape_out_eachimg / bpPortion  # put the reconstructions into a bit tensor and then normalize by the effective # of BP nodes
