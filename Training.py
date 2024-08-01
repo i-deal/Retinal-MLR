@@ -2,8 +2,10 @@ import sys
 
 if len(sys.argv[1:]) != 0:
     d = int(sys.argv[1:][0])
+    load = False#bool(sys.argv[1:][1])
 else:
     d=1
+    load = False
 
 # prerequisites
 import torch
@@ -25,6 +27,7 @@ if len(sys.argv[1:]) != 0:
 else:
     d=1
 print(f'Device: {d}')
+print(f'Load: {load}')
 
 if torch.cuda.is_available():
     device = torch.device(f'cuda:{d}')
@@ -34,8 +37,9 @@ else:
     device = 'cpu'
 
 # to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
-load_checkpoint(f'{checkpoint_folder_path}/checkpoint_most_recent.pth', d)
-print('checkpoint loaded')
+if load is True:
+    load_checkpoint(f'{checkpoint_folder_path}/checkpoint_most_recent.pth', d)
+    print('checkpoint loaded')
 
 bs=100
 
@@ -62,10 +66,12 @@ mnist_skip = mnist_skip.get_loader(bs)
 
 
 vae.to(device)
-
-loss_dict = torch.load(f'mvae_loss_data_recurr{d}.pt') #{'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]} #  # #
+if load is True:
+    loss_dict = torch.load(f'mvae_loss_data_recurr{d}.pt')
+else:
+    loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]}
 seen_labels = {}
-for epoch in range(1100, 1701):
+for epoch in range(0, 1701):
     loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None, True, seen_labels)
     
     # save error quantities

@@ -26,10 +26,10 @@ from torch.autograd import Variable
 from torchvision.utils import save_image
 from sklearn import svm
 from sklearn.metrics import classification_report, confusion_matrix
-from IPython.display import Image, display
-import cv2
+#from IPython.display import Image, display
+#import cv2
 from PIL import ImageFilter
-import imageio, time
+#import imageio, time
 import math
 import sys
 import pandas as pd
@@ -42,12 +42,12 @@ from mVAE import *
 from tokens_capacity import *
 import os
 
-from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
+from PIL import Image, ImageOps, ImageEnhance#, __version__ as PILLOW_VERSION
 convert_tensor = transforms.ToTensor()
 convert_image = transforms.ToPILImage()
 
 if torch.cuda.is_available():
-    device = 'cuda'
+    device = torch.device('cuda')
     print('CUDA')
 else:
     device = 'cpu'
@@ -60,14 +60,14 @@ if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 
 #load_checkpoint('output/checkpoint_threeloss_singlegrad200_smfc.pth'.format(modelNumber=modelNumber))
-load_checkpoint('output_emnist_recurr/checkpoint_150.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
+load_checkpoint('output_mnist_2drecurr1/checkpoint_most_recent.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
 
 #print('Loading the classifiers')
-clf_shapeS=load('classifier_output/ss.joblib')
+'''clf_shapeS=load('classifier_output/ss.joblib')
 clf_shapeC=load('classifier_output/sc.joblib')
 clf_colorC=load('classifier_output/cc.joblib')
 clf_colorS=load('classifier_output/cs.joblib')
-
+'''
 #write to a text file
 outputFile = open('outputFile.txt'.format(modelNumber),'w')
 
@@ -81,8 +81,8 @@ shapeLabel_coeff= 1   #coefficient of the shape label
 colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
-bpsize = 2500         #size of the binding pool
-token_overlap =0.25
+bpsize = 10000#00         #size of the binding pool
+token_overlap =0.1
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
 normalize_fact_familiar=1
@@ -99,10 +99,10 @@ smallpermnum = 100
 
 Fig2aFlag = 0       #binding pool reconstructions   NOTWORKING
 fig_new_loc = 0     # reconstruct retina images with digits in the location opposite of training
-fig_loc_compare = 1 # compare retina images with digits in the same location as training and opposite location  
-Fig2bFlag = 1        #novel objects stored and retrieved from memory, one at a time
+fig_loc_compare = 0 # compare retina images with digits in the same location as training and opposite location  
+Fig2bFlag = 1       #novel objects stored and retrieved from memory, one at a time
 Fig2btFlag = 1       #novel objects stored and retrieved from memory, in tokens
-Fig2cFlag = 1       #familiar objects stored and retrieved from memory, using tokens 
+Fig2cFlag = 1      #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
 Fig2nFlag = 0
     
@@ -281,10 +281,10 @@ if fig_new_loc == 1:
 
 if fig_loc_compare == 1:
     bs = 15
-    train_transforms = {'retina':True, 'colorize':True, 'location_targets':{'left':list(range(0,5)),'right':list(range(5,10))}}
-    test_transforms = {'retina':True, 'colorize':True, 'location_targets':{'right':list(range(0,5)),'left':list(range(5,10))}}
-    train_loader_noSkip = Dataset('mnist',train_transforms).get_loader(bs)
-    test_loader_noSkip = Dataset('mnist',test_transforms, train=False).get_loader(bs)
+    mnist_transforms = {'retina':True, 'colorize':True, 'scale':False, 'location_targets':{'left':[0,1,2,3,4],'right':[5,6,7,8,9]}}
+    mnist_test_transforms = {'retina':True, 'colorize':True, 'scale':False, 'location_targets':{'right':[0,1,2,3,4],'left':[5,6,7,8,9]}}
+    train_loader_noSkip = Dataset('mnist',mnist_transforms).get_loader(bs)
+    test_loader_noSkip = Dataset('mnist',mnist_test_transforms, train=False).get_loader(bs)
     imgsize = 28
     numimg = 10
     
@@ -294,11 +294,11 @@ if fig_loc_compare == 1:
     #skip = skipd.next()
     #print(skip[0].size())
     print(type(dataiter_noSkip_test))
-    data_test = dataiter_noSkip_test.next()
-    data_train = dataiter_noSkip_train.next()
+    data_test = next(dataiter_noSkip_test)
+    data_train = next(dataiter_noSkip_train)
 
     data = data_train[0].copy()
-    #print(data.size())
+
     data[0] = torch.cat((data_test[0][0], data_train[0][0]),dim=0) #.cuda()
     data[1] = torch.cat((data_test[0][1], data_train[0][1]),dim=0)
     data[2] = torch.cat((data_test[0][2], data_train[0][2]),dim=0)
@@ -307,61 +307,28 @@ if fig_loc_compare == 1:
     sample_size = 15
     print(sample[0].size(),sample[1].size(),sample[2].size())
     with torch.no_grad():
-        reconl, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'location') #location
-        reconb, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'retinal') #retina
-        recond, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'cropped') #digit
-        reconc, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'color') #color
-        recons, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'shape') #shape
-            
-    empty_retina = torch.zeros((2*sample_size, 3, 28, 100))
+        reconl, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,mu_scale,log_var_scale = vae(sample, 'location') #location
+        reconb, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,mu_scale,log_var_scale = vae(sample, 'retinal') #retina
 
-    n_reconl = empty_retina.clone()
-    for i in range(len(reconl)):
-        n_reconl[i][0, :, 0:100] = reconl[i]
-        n_reconl[i][1, :, 0:100] = reconl[i]
-        n_reconl[i][2, :, 0:100] = reconl[i]
-
-    n_recond = empty_retina.clone()
-    for i in range(len(recond)):
-        n_recond[i][0, :, 0:imgsize] = recond[i][0]
-        n_recond[i][1, :, 0:imgsize] = recond[i][1]
-        n_recond[i][2, :, 0:imgsize] = recond[i][2]
-
-    n_reconc = empty_retina.clone()
-    for i in range(len(reconc)):
-        n_reconc[i][0, :, 0:28] = reconc[i][0]
-        n_reconc[i][1, :, 0:28] = reconc[i][1]
-        n_reconc[i][2, :, 0:28] = reconc[i][2]
-
-    n_recons = empty_retina.clone()
-    for i in range(len(recons)):
-        n_recons[i][0, :, 0:28] = recons[i][0]
-        n_recons[i][1, :, 0:28] = recons[i][1]
-        n_recons[i][2, :, 0:28] = recons[i][2]
     line1 = torch.ones((1,2)) * 0.5
-    line1 = line1.view(1,1,1,2)
-    line2 = line1.expand(sample_size, 3, imgsize, 2)
-    line1 = line1.expand(2*sample_size, 3, imgsize, 2)
-    
-    n_reconc = torch.cat((n_reconc,line1),dim = 3).cuda()
-    n_recons = torch.cat((n_recons,line1),dim = 3).cuda()
-    n_reconl = torch.cat((n_reconl,line1),dim = 3).cuda()
-    n_recond = torch.cat((n_recond,line1),dim = 3).cuda()
+    line2 = line1.view(1,1,1,2)
+    line3 = line2.expand(sample_size, 3, retina_size, 2).cuda()
+    line2 = line2.expand(sample_size*2, 3, retina_size, 2).cuda()
+    reconb = reconb['recon']
+
     shape_color_dim = retina_size + 2
-    sample_test = torch.cat((sample[0][:sample_size],line2),dim = 3).cuda()
-    sample_train = torch.cat((sample[0][sample_size:(2*sample_size)],line2),dim = 3).cuda()
-    reconb = torch.cat((reconb,line1.cuda()),dim = 3).cuda()
+    shape_color_dim1 = imgsize + 2
+    sample = torch.cat((sample[0].cuda(),line2),dim = 3).cuda()
+    reconb = torch.cat((reconb,line2.cuda()),dim = 3).cuda()
+    shape_color_dim = retina_size + 2
+    sample_test = sample[:sample_size] #torch.cat((sample[0][:sample_size],line3),dim = 3).cuda()
+    sample_train = sample[sample_size:] # torch.cat((sample[0][sample_size:],line3),dim = 3).cuda()
     utils.save_image(
-        torch.cat((
-        torch.cat([sample_train.view(sample_size, 3, imgsize, retina_size+2), reconb[sample_size:(2*sample_size)].view(sample_size, 3, imgsize, retina_size+2), n_reconl[sample_size:(2*sample_size)].view(sample_size, 3, imgsize, retina_size+2),
-                    n_recond[sample_size:(2*sample_size)].view(sample_size, 3, imgsize, retina_size+2), n_reconc[sample_size:(2*sample_size)].view(sample_size, 3, imgsize, shape_color_dim), n_recons[sample_size:(2*sample_size)].view(sample_size, 3, imgsize, shape_color_dim)], 0),
-        torch.cat([sample_test.view(sample_size, 3, imgsize, retina_size+2), reconb[:(sample_size)].view(sample_size, 3, imgsize, retina_size+2), n_reconl[:(sample_size)].view(sample_size, 3, imgsize, retina_size+2),
-                    n_recond[:(sample_size)].view(sample_size, 3, imgsize, retina_size+2), n_reconc[:(sample_size)].view(sample_size, 3, imgsize, shape_color_dim), n_recons[:(sample_size)].view(sample_size, 3, imgsize, shape_color_dim)], 0)),0),
-                'output{num}/figure_new_location.png'.format(num=modelNumber),
-                nrow=sample_size,
-                normalize=False,
-                range=(-1, 1),
-            )
+        torch.cat([sample_train.view(sample_size, 3, retina_size, shape_color_dim), reconb[sample_size:(2*sample_size)].view(sample_size, 3, retina_size, shape_color_dim), 
+                   sample_test.view(sample_size, 3, retina_size, shape_color_dim), reconb[:(sample_size)].view(sample_size, 3, retina_size, shape_color_dim)], 0),
+        'output{num}/figure_new_location.png'.format(num=modelNumber),
+        nrow=sample_size, normalize=False)
+    
     image_pil = Image.open('output{num}/figure_new_location.png'.format(num=modelNumber))
     trained_label = "Trained Data"
     untrained_label = "Untrained Data"
@@ -408,16 +375,21 @@ if Fig2bFlag==1:
     retina_size = 100
     imgsize = 28
     numimg = 7
-
+    vae.eval()
     #load in some examples of Bengali Characters
     for i in range (1,numimg+1):
-        img_new = convert_tensor(Image.open(f'current_bengali/{i}_thick.png'))[0:3,:,:]
+        img = Image.open(f'current_bengali/change_image_{i}.png') #Image.open(f'current_bengali/{i}_thick.png')# #
+        img = img.resize((28, 28))
+        img_new = convert_tensor(img)[0:3,:,:]
         #img_new = Colorize_func(img)   # Currently broken, but would add a color to each
         all_imgs.append(img_new)
     all_imgs = torch.stack(all_imgs)
     imgs = all_imgs.view(-1, 3 * imgsize * imgsize).cuda()
     location = torch.zeros(imgs.size()[0], vae.l_dim).cuda()
     location[0] = 1
+
+    blank = torch.zeros(1,3,28,28).cuda()
+    blank[:,:,]
     #push the images through the encoder
     l1_act, l2_act, shape_act, color_act, location_act = activations(imgs.view(-1,3,28,28), location)
     
@@ -431,13 +403,14 @@ if Fig2bFlag==1:
     
     for n in range (0,numimg):
             # reconstruct directly from activation
-        recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped')
+        #recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped')
         
         #now store/retrieve from L1
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),0, 0,0,1,0,1,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
-      
+        #print(BP_layerI_out.size())
         # reconstruct  from BP version of layer 1, run through the skip
+        #BP_layerI_out = l1_act[n,:].view(1,-1) #remove
         BP_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layer2_out,3, 'skip_cropped')
 
         # reconstruct  from BP version of layer 1, run through the bottleneck
@@ -455,7 +428,7 @@ if Fig2bFlag==1:
 
     #save an image showing:  original images, reconstructions directly from L1,  from L1 BP, from L1 BP through bottleneck, from maps BP
     save_image(torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize), imgmatrixL1skip, imgmatrixL1noskip, imgmatrixMap], 0),'output{num}/figure2b.png'.format(num=modelNumber),
-            nrow=numimg,            normalize=False, range=(-1, 1),)  
+            nrow=numimg,            normalize=False,)  
 
 if Fig2btFlag==1:
     all_imgs = []
@@ -464,6 +437,7 @@ if Fig2btFlag==1:
     retina_size = 100
     imgsize = 28
     numimg = 7  #how many objects will we use here?
+    vae.eval()
 
     #load in some examples of Bengali Characters
     for i in range (1,numimg+1):
@@ -473,7 +447,7 @@ if Fig2btFlag==1:
     #all_imgs is a list of length 3, each of which is a 3x28x28
     all_imgs = torch.stack(all_imgs)
     imgs = all_imgs.view(-1, 3 * imgsize * imgsize).cuda()   #dimensions are R+G+B + # pixels
-
+    imgs[0], imgs[6] = imgs[6], imgs[0]
     imgmatrix = imgs.view(numimg,3,28,28)
     #push the images through the model
     l1_act, l2_act, shape_act, color_act, location_act = activations(imgs.view(-1,3,28,28))
@@ -482,7 +456,27 @@ if Fig2btFlag==1:
     for n in range(1,numimg+1):
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,0, 0,0,1,0,n,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,n,normalize_fact_novel)
-      
+        plt.close()
+
+        # Create a figure with two subplots side by side
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Plot the first distribution (post BP)
+        ax2.hist(l1_out_all[0].cpu().detach(), bins=50)
+        ax2.set_title('Post BP')
+        ax2.set_xlabel('Value')
+        ax2.set_ylabel('Frequency')
+
+        # Plot the second distribution (pre BP)
+        ax1.hist(l1_act[0].cpu().detach(), bins=50)
+        ax1.set_title('Pre BP')
+        ax1.set_xlabel('Value')
+        ax1.set_ylabel('Frequency')
+
+        # Adjust the layout and save the figure
+        plt.tight_layout()
+        plt.savefig('skipconhist.png')
+        plt.close()
         recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_out_all.view(n,-1), l2_act, 3, 'skip_cropped')
         #recon_layer1_skip= vae.decoder_skip_cropped(0,0,0,l1_out_all)      
         imgmatrix= torch.cat([imgmatrix,recon_layer1_skip],0)
@@ -491,28 +485,28 @@ if Fig2btFlag==1:
         for i in range(n,numimg):
             imgmatrix= torch.cat([imgmatrix,emptyshape*0],0)
 
-    save_image(imgmatrix,'output{num}/figure2bt.png'.format(num=modelNumber),    nrow=numimg, normalize=False,  range=(-1, 1),   )
+    save_image(imgmatrix,'output{num}/figure2bt.png'.format(num=modelNumber),    nrow=numimg, normalize=False,   )
 
 
 
 if Fig2cFlag==1:
-
+    vae.eval()
     print('generating Figure 2c, Familiar characters retrieved from Bottleneck using Tokens')
     retina_size = 100
     reconMap = list()
     reconL1 = list()
     imgsize = 28
     numimg = 7  #how many objects will we use here?
-
+    #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    train_loader_noSkip= Dataset('mnist',{'colorize':True,'retina':True}, train=False).get_loader(numimg)
+    test_loader_noSkip= Dataset('mnist',{'colorize':True,'retina':True}, train=False).get_loader(numimg)
     
     #Code showing the data loader for how the model was trained, empty dict in 3rd param is for any color:
     '''train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
             {},True,{'right':list(range(0,5)),'left':list(range(5,10))}) '''    
 
     dataiter_noSkip = iter(test_loader_noSkip)
-    data = dataiter_noSkip.next()
+    data = next(dataiter_noSkip)
     data = data[0] #.cuda()
     
     sample_data = data
@@ -523,24 +517,44 @@ if Fig2cFlag==1:
     
     
     #push the images through the model
+    reconb, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,mu_scale,log_var_scale = vae(sample, 'cropped')
     l1_act, l2_act, shape_act, color_act, location_act = activations(sample[1].view(-1,3,28,28).cuda())
-    emptyshape = torch.empty((1,3,28,28)).cuda()
-    imgmatrixMap = sample[1].view(numimg,3,28,28).cuda()
-    imgmatrixL1 = sample[1].view(numimg,3,28,28).cuda()
+    
+    shape_act = vae.sampling(mu_shape, log_var_shape).cuda()
+    color_act = vae.sampling(mu_color, log_var_color).cuda()
+    reconskip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped') 
 
+    emptyshape = torch.empty((1,3,28,28)).cuda()
+    imgmatrixMap = torch.cat([sample[1].view(numimg,3,28,28).cuda(), reconb],0)
+    imgmatrixL1 = torch.cat([sample[1].view(numimg,3,28,28).cuda(), reconskip],0)
+    shape_act_in = shape_act
     # store 1 -> numimg items
     for n in range(1,numimg+1):
         #Store and retrieve the map versions
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1, 1,0,0,0,n,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,n,normalize_fact_novel)
+        z = torch.randn(numimg-n,8).cuda()
+        #shape_out_all = torch.cat([shape_out_all,z],0)
+        #color_out_all = torch.cat([color_out_all,z],0)
+        #shape_out_all = shape_act[:n]
+        #color_out_all = color_act[:n] #torch.cat([color_out_all,z],0)
+        #shape_out_all = torch.cat([shape_out_all,z],0)
+        #color_out_all = torch.cat([color_out_all,z],0)
+        #retrievals = []
+        #for i in range(n):
+         #   print(color_out_all[i].view(-1,vae.z_dim).size())
+         #   retrievals += [vae.decoder_cropped(shape_out_all[i].view(-1,vae.z_dim), color_out_all[i].view(-1,vae.z_dim),0,0).cuda()]
         retrievals = vae.decoder_cropped(shape_out_all, color_out_all,0,0).cuda()
-
+        #retrievals = retrievals[:n]
         #Store and retrieve the L1 version
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,0, 0,0,1,0,n,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,n,normalize_fact_novel)
+        #l1_out_all=l1_act[:n] #remove
         recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_out_all.view(n,-1), l2_act, 3, 'skip_cropped')        
         
-        imgmatrixMap= torch.cat([imgmatrixMap,retrievals],0)
+        #imgmatrixMap= torch.cat([imgmatrixMap] + retrievals,0)
+        
+        imgmatrixMap= torch.cat([imgmatrixMap, retrievals],0)
         imgmatrixL1= torch.cat([imgmatrixL1,recon_layer1_skip],0)
 
         #now pad with empty images
@@ -548,8 +562,8 @@ if Fig2cFlag==1:
             imgmatrixMap= torch.cat([imgmatrixMap,emptyshape*0],0)
             imgmatrixL1= torch.cat([imgmatrixL1,emptyshape*0],0)
  
-    save_image(imgmatrixL1, 'output{num}/figure2cL1.png'.format(num=modelNumber),  nrow=numimg,        normalize=False,range=(-1, 1))
-    save_image(imgmatrixMap, 'output{num}/figure2cMap.png'.format(num=modelNumber),  nrow=numimg,        normalize=False,range=(-1, 1))
+    save_image(imgmatrixL1, 'output{num}/figure2cL1.png'.format(num=modelNumber),  nrow=numimg,        normalize=False) #range=(-1, 1))
+    save_image(imgmatrixMap, 'output{num}/figure2cMap.png'.format(num=modelNumber),  nrow=numimg,        normalize=False) #,range=(-1, 1))
         
 
 ###################Table 2##################################################
