@@ -15,15 +15,15 @@ loss_data['retinal_test']= loss_data['retinal_test'][61:x-45]
 loss_data['cropped_train'] = loss_data['cropped_train'][:x-45]
 loss_data['cropped_test'] = loss_data['cropped_test'][:x-45]'''
 
-plt.plot(loss_data['retinal_train'][0:], label='Retinal Training Error')
-plt.plot(loss_data['retinal_test'][0:], label='Retinal Test Error')
+plt.plot(loss_data['retinal_train'][101:], label='Retinal Training Error')
+plt.plot(loss_data['retinal_test'][101:], label='Retinal Test Error')
 plt.ylabel('Error')
 plt.xlabel('Epochs of Training')
 plt.legend()
 plt.title('Retinal Loss Over Epochs of Training')
-plt.show()#plt.savefig('plot_loss_retinal.png')
+plt.savefig('plot_loss_retinal.png') # plt.show()#
 
-#plt.close()
+plt.close()
 plt.plot(loss_data['cropped_train'], label='Cropped Training Error')
 plt.plot(loss_data['cropped_test'], label='Cropped Test Error')
 plt.ylabel('Error')

@@ -34,6 +34,9 @@ import math
 import sys
 import pandas as pd
 from torch.utils.data import DataLoader, Subset
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy import stats
+import gc
 
 #from config import numcolors
 global numcolors, colorlabels
@@ -81,8 +84,8 @@ shapeLabel_coeff= 1   #coefficient of the shape label
 colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
-bpsize = 10000#00         #size of the binding pool
-token_overlap =0.1
+bpsize = 3000#00         #size of the binding pool
+token_overlap =0.2
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
 normalize_fact_familiar=1
@@ -93,18 +96,20 @@ imgsize = 28
 all_imgs = []
 
 #number of repetions for statistical inference
-hugepermnum=10000
+hugepermnum=8000
 bigpermnum = 500
 smallpermnum = 100
 
 Fig2aFlag = 0       #binding pool reconstructions   NOTWORKING
 fig_new_loc = 0     # reconstruct retina images with digits in the location opposite of training
 fig_loc_compare = 0 # compare retina images with digits in the same location as training and opposite location  
-Fig2bFlag = 1       #novel objects stored and retrieved from memory, one at a time
-Fig2btFlag = 1       #novel objects stored and retrieved from memory, in tokens
-Fig2cFlag = 1      #familiar objects stored and retrieved from memory, using tokens 
+Fig2bFlag = 0      #novel objects stored and retrieved from memory, one at a time
+Fig2btFlag =0      #novel objects stored and retrieved from memory, in tokens
+Fig2cFlag = 0      #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
 Fig2nFlag = 0
+change_detect_flag = 1
+change_detect_2_flag = 0
     
 bindingtestFlag = 0  #simulating binding shape-color of two items  NOT WORKING
 
@@ -138,6 +143,516 @@ if (sampleflag):
     test_dataset = torch.utils.data.ConcatDataset((test_dataset_MNIST, ftest_dataset))
     test_loader_smaller = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=bs_testing, shuffle=True, num_workers=nw)
 
+
+if change_detect_flag == 1:
+    def compute_dprime(no_change_vector, change_vector):
+        no_change_vector = np.array(no_change_vector)
+        change_vector = np.array(change_vector)
+        
+        # hit rate and false alarm rate
+        hit_rate = np.mean(change_vector)
+        false_alarm_rate = 1 - np.mean(no_change_vector)
+        hit_rate = np.clip(hit_rate, 0.01, 0.99)
+        false_alarm_rate = np.clip(false_alarm_rate, 0.01, 0.99)
+        
+        # z-scores
+        z_hit = stats.norm.ppf(hit_rate)
+        z_fa = stats.norm.ppf(false_alarm_rate)
+        d_prime = z_hit - z_fa
+        
+        return d_prime
+
+    def compute_correlation(x, y):
+        assert x.shape == y.shape, "Tensors must have the same shape"
+        
+        # Flatten tensors if they're multidimensional
+        x = x.view(-1)
+        y = y.view(-1)
+        #x = replace_near_zero(x)
+        #y = replace_near_zero(y)
+        
+        # Compute means
+        x_mean = torch.mean(x)
+        y_mean = torch.mean(y)
+        
+        # Compute the numerator
+        numerator = torch.sum((x - x_mean) * (y - y_mean))
+        
+        # Compute the denominator
+        x_var = torch.sum((x - x_mean)**2)
+        y_var = torch.sum((y - y_mean)**2)
+        denominator = torch.sqrt(x_var * y_var)
+        
+        # Compute correlation
+        correlation = numerator / denominator
+        
+        return correlation
+    
+    def build_partial(input_tensor, n, out_x=1):
+        x, b, channels, height, width = input_tensor.shape
+        output_tensor = torch.zeros(x, channels, height, width, dtype=input_tensor.dtype, device=input_tensor.device)
+
+        for batch_idx in range(x):
+            for img_idx in range(n):
+                output_tensor[batch_idx] += input_tensor[batch_idx, img_idx]
+
+        # Clamp the output tensor to the range [0, 1]
+        output_tensor = torch.clamp(output_tensor, min=0.0, max=1.0)
+
+        return output_tensor
+
+    vae.eval()
+    max_set_size = 8 #8
+    out_r = {0:[], 1:[]} #[]
+    out_dprime = {0:[], 1:[]} # []
+    threshold = {0:[], 1:[]} #[]
+    setsize_range = range(2, max_set_size+1, 1)
+
+    for t in range(0,2):
+        for i in setsize_range:
+            if t == 0:
+                frame_count = 1
+            else:
+                frame_count = i
+            
+            with torch.no_grad():
+                if t == 0:
+                    original_t = torch.load(f'original_{i}.pth').cpu()
+                    change_t = torch.load(f'change_{i}.pth').cpu()
+                else:
+                    original_t = torch.load(f'original_frames_{i}.pth').cpu()
+                    change_t = torch.load(f'change_frames_{i}.pth').cpu()
+
+                print(len(original_t),len(change_t))
+                r_lst0 = []
+                r_lst1 = []
+                no_change_detected = []
+                change_detected = []
+                for b in range(0,20): #20
+                    print(i,b)
+                    torch.cuda.empty_cache()
+                    samples = 40
+                    batch_id = b*samples
+                    original = original_t[batch_id: batch_id+samples].cuda()
+                    change = change_t[batch_id: batch_id+samples].cuda()
+                    #original_frames = torch.load(f'original_frames_{i}.pth').cuda()
+                    batch_size = original.size(0)
+                    #print(original_frames.size())
+
+                    # store block arrays in BP via L1
+                    l1_original = []
+                    for n in range(len(original)):
+                        l1_act, l2_act, shape_act, color_act, location_act = activations(original[n].view(frame_count,3,28,28))
+                        l1_original += [l1_act]
+                    #l1_change, l2_act, shape_act, color_act, location_act = activations(change)
+                    bp_original_l1 = []
+                    bp_change_l1 = []
+                    bp_junk = torch.zeros(frame_count,1).cuda()
+                    for n in range(batch_size):
+                        
+                        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_original[n].view(frame_count,-1), bp_junk, bp_junk,bp_junk,bp_junk,0, 0,0,1,0,frame_count,normalize_fact_novel)
+                        shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_original = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_original[1].view(frame_count,-1), bp_junk, bp_junk,bp_junk,bp_junk,frame_count,normalize_fact_novel)
+                        #BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_change[n,:].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,0, 0,0,1,0,1,normalize_fact_novel)
+                        #shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_change = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_change[1].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,1,normalize_fact_novel)
+                        bp_original_l1 += [BP_layerI_original]
+                        #bp_change_l1 += [BP_layerI_change]
+
+                    #bp_original_l1 = torch.cat(bp_original_l1, dim=0)
+                    #bp_change_l1 = torch.cat(bp_change_l1, dim=0)
+                    original_BP = []
+                    for n in range(len(original)):
+                        recon, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_original_l1[n].view(frame_count,-1),BP_layer2_out,3, 'skip_cropped')
+                        if t != 0:
+                            recon = build_partial(recon.view(1,frame_count,3,28,28), len(recon))
+                        original_BP += [recon]
+                    
+                    if t == 1:
+                        original = build_partial(original, len(original[0]))
+                        change = build_partial(change, len(change[0]))
+                    #change_BP, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_change_l1.view(batch_size,-1),BP_layer2_out,3, 'skip_cropped')
+
+                    #save_image(torch.cat([original, original_BP, change, change_BP],dim=0), f'changedetect_bp{i}.png', nrow = batch_size, normalize=False)
+                    print(len(original_BP))
+                    for j in range(len(original)):
+                        #x, y, z = original[i].cpu().detach().view(1,-1), original_BP[i].cpu().detach().view(1,-1), change_BP[i].cpu().detach().view(1,-1)
+                        x, y, z = original[j], original_BP[j].view(3,28,28), change[j]
+                        r_original = compute_correlation(x,y) #cosine_similarity(x,y) # 
+                        r_change = compute_correlation(y,z)#cosine_similarity(x,z) #
+                        
+                        r_lst0 += [r_original]
+                        r_lst1 += [r_change]
+                    
+                    
+                    del original
+                    del change
+                    del original_BP
+                    del l1_original 
+                    del l2_act 
+                    del shape_act 
+                    del color_act
+                    del location_act
+                    gc.collect()
+                    torch.cuda.empty_cache()
+
+            print('computing threshold')    
+            avg_r0 = sum(r_lst0)/(len(r_lst0))
+            avg_r1 = sum(r_lst1)/(len(r_lst1))
+            out_r[t] += [[avg_r0.item(), avg_r1.item()]]
+
+            c_threshold = (avg_r0.item() + avg_r1.item())/2
+            
+            for l in range(len(r_lst0)):
+                r_original = r_lst0[l]
+                r_change = r_lst1[l]
+
+                if r_original > c_threshold:
+                    no_change_detected += [1]
+                else:
+                    no_change_detected += [0]
+
+                if r_change <= c_threshold:
+                    change_detected += [1]
+                else:
+                    change_detected += [0]
+
+            out_dprime[t] += [compute_dprime(no_change_detected, change_detected)]
+            threshold[t] += [c_threshold]
+    torch.save([out_r[0][i][0] for i in range(len(out_r[0]))], 'location_change_detect_r.pth')
+    plt.plot(setsize_range, [out_r[0][i][0] for i in range(len(out_r[0]))], label='no change')
+    plt.plot(setsize_range, [out_r[0][i][1] for i in range(len(out_r[0]))], label='change')
+    plt.plot(setsize_range, threshold[0], label='threshold')
+    plt.xlabel('set size')
+    plt.ylabel('r')
+    plt.legend()
+    plt.title(f'correlation vs set size, {batch_size*20} trials, BP: {bpPortion}')
+    plt.savefig('change_detect.png')
+    plt.close()
+
+    plt.plot(setsize_range, out_dprime[0], label=f'dprime for whole memory')
+    plt.plot(setsize_range, out_dprime[1], label=f'dprime for compositional memory')
+    plt.xlabel('set size')
+    plt.ylabel('dprime')
+    plt.legend()
+    plt.title(f'dprime vs set size, {batch_size*20} trials, BP: {bpPortion}')
+    plt.savefig('change_detect_accuracy.png')
+
+if change_detect_2_flag == 1:
+    def compute_dprime(no_change_vector, change_vector):
+        no_change_vector = np.array(no_change_vector)
+        change_vector = np.array(change_vector)
+        
+        # hit rate and false alarm rate
+        hit_rate = np.mean(change_vector)
+        false_alarm_rate = 1 - np.mean(no_change_vector)
+        hit_rate = np.clip(hit_rate, 0.01, 0.99)
+        false_alarm_rate = np.clip(false_alarm_rate, 0.01, 0.99)
+        
+        # z-scores
+        z_hit = stats.norm.ppf(hit_rate)
+        z_fa = stats.norm.ppf(false_alarm_rate)
+        d_prime = z_hit - z_fa
+        
+        return d_prime
+
+    def compute_correlation(x, y):
+        assert x.shape == y.shape, "Tensors must have the same shape"
+        
+        # Flatten tensors if they're multidimensional
+        x = x.view(-1)
+        y = y.view(-1)
+        #x = replace_near_zero(x)
+        #y = replace_near_zero(y)
+        
+        # Compute means
+        x_mean = torch.mean(x)
+        y_mean = torch.mean(y)
+        
+        # Compute the numerator
+        numerator = torch.sum((x - x_mean) * (y - y_mean))
+        
+        # Compute the denominator
+        x_var = torch.sum((x - x_mean)**2)
+        y_var = torch.sum((y - y_mean)**2)
+        denominator = torch.sqrt(x_var * y_var)
+        
+        # Compute correlation
+        correlation = numerator / denominator
+        
+        return correlation
+
+    def build_partial(input_tensor, n=4):
+        x, batch_size, channels, height, width = input_tensor.shape
+        output_tensor = torch.zeros(x, channels, height, width, dtype=input_tensor.dtype, device=input_tensor.device)
+
+        for batch_idx in range(x):
+            for img_idx in range(n):
+                output_tensor[batch_idx] += input_tensor[batch_idx, img_idx]
+
+        # Clamp the output tensor to the range [0, 1]
+        output_tensor = torch.clamp(output_tensor, min=0.0, max=1.0)
+
+        return output_tensor
+
+    def build_single(input_tensor):
+        x, batch_size, channels, height, width = input_tensor.shape
+        output_tensor = torch.zeros(x, channels, height, width, dtype=input_tensor.dtype, device=input_tensor.device)
+
+        for batch_idx in range(x):
+            output_tensor[batch_idx] += input_tensor[batch_idx, 0]
+
+        # Clamp the output tensor to the range [0, 1]
+        output_tensor = torch.clamp(output_tensor, min=0.0, max=1.0)
+
+        return output_tensor
+
+    def zero_outside_radius(tensor, center_x, center_y, radius=6):
+        result = tensor.clone()
+        center_x = (28*center_x)/500
+        center_y = (28*center_y)/500
+        
+        # Iterate over all positions in the 28x28 grid
+        for i in range(28):
+            for j in range(28):
+                # Calculate the squared distance from the current position to the center
+                distance_squared = (i - center_y)**2 + (j - center_x)**2
+                
+                # If the distance is greater than the radius, set all channel values to zero
+                if distance_squared > radius**2:
+                    result[:, i, j] = 0
+        
+        return result
+
+    vae.eval()
+    max_set_size = 8 #8
+    out_r = {'total':[], 'partial':[], 'single':[]}
+    out_dprime = {'total':[], 'partial':[], 'single':[]}
+    out_accuracy = {'total':[], 'partial':[], 'single':[]} # []
+    threshold = {0:[], 1:[]} #[]
+    setsize_range = range(8,9)
+    threshold_data = torch.load('location_change_detect_r.pth')
+    #print(threshold_data)
+
+    for b in range(0,1): #20
+        for i in setsize_range:
+            torch.cuda.empty_cache()
+            samples = 50
+            batch_id = b*samples
+            #original = torch.load(f'original_{i}.pth')[batch_id: batch_id+samples].cuda()
+            #change = torch.load(f'change_{i}.pth')[batch_id: batch_id+samples].cuda()
+            original_frames = torch.load(f'original_frames_{i}.pth')[batch_id: batch_id+samples].cuda()
+            change_frames = torch.load(f'change_frames_{i}.pth')[batch_id: batch_id+samples].cuda()
+            original = build_partial(original_frames, n=len(original_frames[0]))
+            change = build_partial(change_frames, n=len(change_frames[0]))
+            position_lst = torch.load(f'positions_{i}.pth')[batch_id: batch_id+samples]
+            print(position_lst[0][0])
+            batch_size = original.size(0)
+            print(i, batch_size)
+            original_partial = build_partial(original_frames)
+            change_partial = build_partial(change_frames)
+            original_single = build_single(original_frames)
+            change_single = build_single(change_frames)
+            print(original_partial.size())
+            #save_image(torch.cat([original, change, original_partial,change_partial, original_single, change_single],dim=0), f'changedetect_color.png', nrow = batch_size, normalize=False)
+            
+            # store block arrays in BP via L1
+
+            l1_original, l2_act, shape_act, color_act, location_act = activations(original)
+            #l1_change, l2_act, shape_act, color_act, location_act = activations(change)
+            bp_original_l1 = []
+            bp_change_l1 = []
+            bp_junk = torch.zeros(1,1).cuda()
+            for n in range(batch_size):
+                BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_original[n,:].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,0, 0,0,1,0,1,normalize_fact_novel)
+                shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_original = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_original[1].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,1,normalize_fact_novel)
+                #BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_change[n,:].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,0, 0,0,1,0,1,normalize_fact_novel)
+                #shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_change = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_change[1].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,1,normalize_fact_novel)
+                
+                bp_original_l1 += [BP_layerI_original]
+                #bp_change_l1 += [BP_layerI_change]
+
+            bp_original_l1 = torch.cat(bp_original_l1, dim=0)
+            #bp_change_l1 = torch.cat(bp_change_l1, dim=0)
+            original_BP, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_original_l1.view(batch_size,-1),BP_layer2_out,3, 'skip_cropped')
+            #change_BP, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_change_l1.view(batch_size,-1),BP_layer2_out,3, 'skip_cropped')
+            #save_image(torch.cat([original, original_BP],dim=0), f'changedetect_location_bp.png', nrow = batch_size, normalize=False)
+
+
+            r_lst0 = []
+            r_lst1 = []
+            r_lst2 = []
+            r_lst3 = []
+            r_lst4 = []
+            r_lst5  = []
+            no_change_detected = []
+            change_detected = []
+            no_change_detected_partial = []
+            change_detected_partial = []
+            no_change_detected_single = []
+            change_detected_single = []
+            for j in range(len(original)):
+                #x, y, z = original[i].cpu().detach().view(1,-1), original_BP[i].cpu().detach().view(1,-1), change_BP[i].cpu().detach().view(1,-1)
+                x, y, z = original[j], original_BP[j], change[j]
+                r_original_total = compute_correlation(x,y) #cosine_similarity(x,y) # 
+                r_change_total = compute_correlation(y,z)#cosine_similarity(x,z) #
+                
+                r_original_partial = compute_correlation(y,original_partial[j]) #cosine_similarity(x,y) # 
+                r_change_partial = compute_correlation(y,change_partial[j])
+                
+                pos = position_lst[j][0]
+                y = zero_outside_radius(y,pos[0],pos[1])
+                save_image(torch.cat([x.view(1,3,28,28),original_BP[j].view(1,3,28,28),y.view(1,3,28,28), original_single[j].view(1,3,28,28)],dim=0), f'single_masked.png', nrow = 1, normalize=False)
+                
+                r_original_single = compute_correlation(y,original_single[j]) #cosine_similarity(x,y) # 
+                r_change_single = compute_correlation(y,change_single[j])
+            
+                r_lst0 += [r_original_total]
+                r_lst1 += [r_change_total]
+
+                
+                r_lst2 += [r_original_partial]
+                r_lst3 += [r_change_partial]
+                
+                # compute r only in area around probe object location
+                r_lst4 += [r_original_single]
+                r_lst5 += [r_change_single]
+            
+            avg_r0 = sum(r_lst0)/(len(r_lst0))
+            avg_r1 = sum(r_lst1)/(len(r_lst1))
+            avg_r2 = sum(r_lst2)/(len(r_lst2))
+            avg_r3 = sum(r_lst3)/(len(r_lst3))
+            avg_r4 = sum(r_lst4)/(len(r_lst4))
+            avg_r5 = sum(r_lst5)/(len(r_lst5))
+
+            if len(out_r['total']) == 0:
+                out_r['total'] = [avg_r0.item(), avg_r1.item()] 
+                out_r['partial'] = [avg_r2.item(), avg_r3.item()]
+                out_r['single'] = [avg_r4.item(), avg_r5.item()]
+            else:
+                out_r['total'] = [(avg_r0.item()+out_r['total'][0])/2, (avg_r1.item()+out_r['total'][1])/2] 
+                out_r['partial'] = [(avg_r2.item()+out_r['partial'][0])/2, (avg_r3.item()+out_r['partial'][1])/2]
+                out_r['single'] = [(avg_r4.item()+out_r['single'][0])/2, (avg_r5.item()+out_r['single'][1])/2]
+            
+            threshold_scalar = 0.9
+            c_threshold_total = threshold_data[7] #(avg_r0.item() + avg_r1.item())/2
+            c_threshold_partial = threshold_data[3] * threshold_scalar #(avg_r2.item() + avg_r3.item())/2
+            c_threshold_single = threshold_data[0] #(avg_r4.item() + avg_r5.item())/2
+            
+            for l in range(len(r_lst0)):
+                r_original = r_lst0[l]
+                r_change = r_lst1[l]
+
+                if r_original > c_threshold_total:
+                    no_change_detected += [1]
+                else:
+                    no_change_detected += [0]
+
+                if r_change <= c_threshold_total:
+                    change_detected += [1]
+                else:
+                    change_detected += [0]
+            
+            # partial
+            for l in range(len(r_lst2)):
+                r_original = r_lst2[l]
+                r_change = r_lst3[l]
+
+                if r_original > c_threshold_partial:
+                    no_change_detected_partial += [1]
+                else:
+                    no_change_detected_partial += [0]
+
+                if r_change <= c_threshold_partial:
+                    change_detected_partial += [1]
+                else:
+                    change_detected_partial += [0]
+            
+            # single
+            for l in range(len(r_lst4)):
+                r_original = r_lst4[l]
+                r_change = r_lst5[l]
+
+                if r_original > c_threshold_single:
+                    no_change_detected_single += [1]
+                else:
+                    no_change_detected_single += [0]
+
+                if r_change <= c_threshold_single:
+                    change_detected_single += [1]
+                else:
+                    change_detected_single += [0]
+
+            out_dprime['total'] += [compute_dprime(no_change_detected, change_detected)]
+            out_accuracy['total'] += [((sum(no_change_detected)/len(no_change_detected)) + (sum(change_detected)/len(change_detected)))/2]
+            #threshold[t] += [c_threshold]
+
+            out_dprime['partial'] += [compute_dprime(no_change_detected_partial, change_detected_partial)]
+            out_accuracy['partial'] += [((sum(no_change_detected_partial)/len(no_change_detected_partial)) + (sum(change_detected_partial)/len(change_detected_partial)))/2]
+            #threshold[t] += [c_threshold]
+
+            out_dprime['single'] += [compute_dprime(no_change_detected_single, change_detected_single)]
+            out_accuracy['single'] += [((sum(no_change_detected_single)/len(no_change_detected_single)) + (sum(change_detected_single)/len(change_detected_single)))/2]
+            #threshold[t] += [c_threshold]
+            # course 
+    out_dprime['total'] = sum(out_dprime['total'])/(len(out_dprime['total']))
+    out_dprime['partial'] = sum(out_dprime['partial'])/(len(out_dprime['partial']))
+    out_dprime['single'] = sum(out_dprime['single'])/(len(out_dprime['single']))
+
+    out_accuracy['total'] = sum(out_accuracy['total'])/(len(out_accuracy['total']))
+    out_accuracy['partial'] = sum(out_accuracy['partial'])/(len(out_accuracy['partial']))
+    out_accuracy['single'] = sum(out_accuracy['single'])/(len(out_accuracy['single']))
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Create x-axis ticks with gaps between pairs
+    x = np.arange(3)
+    bar_width = 0.4
+    gap_width = bar_width/2
+
+    # Plot the bars in pairs
+    ax.bar(x[0], out_r['total'][0], width=bar_width, label = 'full, no change')
+    ax.bar(x[0] + gap_width, out_r['total'][1], width=bar_width, label = 'full, change')
+    ax.bar(x[1], out_r['partial'][0], width=bar_width, label = 'partial, no change')
+    ax.bar(x[1] + gap_width, out_r['partial'][1], width=bar_width, label = 'partial, change')
+    ax.bar(x[2], out_r['single'][0], width=bar_width, label = 'single, no change')
+    ax.bar(x[2] + gap_width, out_r['single'][1], width=bar_width, label = 'single, change')
+    ax.set_ylabel('r')
+    ax.legend()
+    ax.set_title('Correlation for location change detection, 50 trials')
+    plt.savefig('change_detect_bar.png')
+    plt.close()
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Create x-axis ticks with gaps between pairs
+    x = np.arange(3)
+    bar_width = 0.4
+    gap_width = 0.5
+
+    # Plot the bars in pairs
+    ax.bar(x[0], out_dprime['total'], width=bar_width, label='full context')
+    ax.bar(x[1], out_dprime['partial'], width=bar_width, label='partial context')
+    ax.bar(x[2], out_dprime['single'], width=bar_width, label='single context')
+    ax.legend()
+    ax.set_title('dprime for location change detection, 50 trials')
+    ax.set_ylabel('dprime')
+    plt.savefig('change_detect_accuracy_bar.png')
+    plt.close()
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Create x-axis ticks with gaps between pairs
+    x = np.arange(3)
+    bar_width = 0.4
+    gap_width = 0.5
+
+    # Plot the bars in pairs
+    ax.bar(x[0], out_dprime['total'], width=bar_width, label='full context')
+    ax.bar(x[1], out_dprime['partial'], width=bar_width, label='partial context')
+    ax.bar(x[2], out_dprime['single'], width=bar_width, label='single context')
+    ax.legend()
+    ax.set_title('accuracy for location change detection, 50 trials')
+    ax.set_ylabel('%')
+    plt.savefig('change_detect_accuracy_bar_nodprime.png')
 
 ######################## Figure 2a #######################################################################################
 #store items using both features, and separately color and shape (memory retrievals)
@@ -378,7 +893,7 @@ if Fig2bFlag==1:
     vae.eval()
     #load in some examples of Bengali Characters
     for i in range (1,numimg+1):
-        img = Image.open(f'current_bengali/change_image_{i}.png') #Image.open(f'current_bengali/{i}_thick.png')# #
+        img = Image.open(f'current_bengali/{i}_thick.png')# Image.open(f'change_image_{i}.png') #
         img = img.resize((28, 28))
         img_new = convert_tensor(img)[0:3,:,:]
         #img_new = Colorize_func(img)   # Currently broken, but would add a color to each
@@ -411,6 +926,7 @@ if Fig2bFlag==1:
         #print(BP_layerI_out.size())
         # reconstruct  from BP version of layer 1, run through the skip
         #BP_layerI_out = l1_act[n,:].view(1,-1) #remove
+        BP_layerI_out = vae.sparse_relu(BP_layerI_out*(1/2))
         BP_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layer2_out,3, 'skip_cropped')
 
         # reconstruct  from BP version of layer 1, run through the bottleneck
@@ -418,7 +934,7 @@ if Fig2bFlag==1:
         
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),1, 1,0,0,0,1,normalize_fact_novel)
         shape_out_BP, color_out_BP, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
-      
+         
         #reconstruct from BP version of the shape and color maps
         retrievals = vae.decoder_cropped(shape_out_BP, color_out_BP,0,0).cuda()
 
@@ -456,22 +972,26 @@ if Fig2btFlag==1:
     for n in range(1,numimg+1):
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,0, 0,0,1,0,n,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,n,normalize_fact_novel)
+        
+        
+
+        
         plt.close()
 
         # Create a figure with two subplots side by side
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
         # Plot the first distribution (post BP)
-        ax2.hist(l1_out_all[0].cpu().detach(), bins=50)
-        ax2.set_title('Post BP')
-        ax2.set_xlabel('Value')
-        ax2.set_ylabel('Frequency')
-
+        ax2.scatter(l1_out_all[0].cpu().detach(), l1_act[0].cpu().detach()) 
+        ax2.set_title('No relu')
+        #ax2.set_xlabel('Value')
+        #ax2.set_ylabel('Frequency')
+        l1_out_all = vae.sparse_relu(l1_out_all*(1/2)) 
         # Plot the second distribution (pre BP)
-        ax1.hist(l1_act[0].cpu().detach(), bins=50)
-        ax1.set_title('Pre BP')
-        ax1.set_xlabel('Value')
-        ax1.set_ylabel('Frequency')
+        ax1.scatter(l1_out_all[0].cpu().detach(), l1_act[0].cpu().detach()) 
+        ax1.set_title('relu')
+        #ax1.set_xlabel('Value')
+        #ax1.set_ylabel('Frequency')
 
         # Adjust the layout and save the figure
         plt.tight_layout()

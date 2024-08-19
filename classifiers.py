@@ -27,7 +27,7 @@ def classifier_shape_train(whichdecode_use, train_dataset):
         utils.save_image(data[0:10],'train_sample.png')
 
         data = data.cuda()
-        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(data, whichdecode_use)
+        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,sc,j = vae(data, whichdecode_use)
         z_shape = vae.sampling(mu_shape, log_var_shape).cuda()
         print('training shape bottleneck against color labels sc')
         clf_sc.fit(z_shape.cpu().numpy(), train_colorlabels)
@@ -43,7 +43,7 @@ def classifier_shape_test(whichdecode_use, clf_ss, clf_sc, test_dataset, confusi
         test_shapelabels=labels[0].clone()
         test_colorlabels=labels[1].clone()
         data = data.cuda()
-        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(data, whichdecode_use)
+        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,sc,j = vae(data, whichdecode_use)
         z_shape = vae.sampling(mu_shape, log_var_shape).cuda()
         pred_ss = clf_ss.predict(z_shape.cpu())
         pred_sc = clf_sc.predict(z_shape.cpu())
@@ -76,7 +76,7 @@ def classifier_color_train(whichdecode_use, train_dataset):
         train_colorlabels=labels[1].clone()
         data = data.cuda()
 
-        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(data, whichdecode_use)
+        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,sc,j = vae(data, whichdecode_use)
         z_color = vae.sampling(mu_color, log_var_color).cuda()
         print('training color bottleneck against color labels cc')
         clf_cc.fit(z_color.cpu().numpy(), train_colorlabels)
@@ -92,7 +92,7 @@ def classifier_color_test(whichdecode_use, clf_cc, clf_cs, test_dataset, verbose
         test_shapelabels=labels[0].clone()
         test_colorlabels=labels[1].clone()
         data = data.cuda()
-        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(data, whichdecode_use)
+        recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,sc,j = vae(data, whichdecode_use)
 
         z_color = vae.sampling(mu_color, log_var_color).cuda()
         pred_cc = torch.tensor(clf_cc.predict(z_color.cpu()))

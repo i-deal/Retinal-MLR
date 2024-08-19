@@ -526,15 +526,20 @@ def loss_function(recon_x, x, crop_x, mu, log_var, mu_c, log_var_c):
 
 #pixelwise loss for just the cropped image
 def loss_function_crop(recon_x, x, mu, log_var, mu_c, log_var_c):
-    x = x.clone()
-    x = x.cuda()
+    if len(x) <= 5:
+        x = x[1].clone().cuda()
+    else:
+        x = x.clone().cuda()
     BCE = F.binary_cross_entropy(recon_x.view(-1, imgsize * imgsize * 3), x.view(-1, imgsize * imgsize * 3), reduction='sum')
     return BCE
 
 
 # loss for shape in a cropped image
 def loss_function_shape(recon_x, x, mu, log_var):
-    x = x[1].clone().cuda()
+    if len(x) <= 5:
+        x = x[1].clone().cuda()
+    else:
+        x = x.clone().cuda()
     # make grayscale reconstruction
     gray_x = x.view(-1, 3, imgsize, imgsize).mean(1)
     gray_x = torch.stack([gray_x, gray_x, gray_x], dim=1)
@@ -545,7 +550,10 @@ def loss_function_shape(recon_x, x, mu, log_var):
 
 #loss for just color in a cropped image
 def loss_function_color(recon_x, x, mu, log_var):
-    x = x[1].clone().cuda()
+    if len(x) <= 5:
+        x = x[1].clone().cuda()
+    else:
+        x = x.clone().cuda()
     # make color-only (no shape) reconstruction and use that as the loss function
     recon = recon_x.clone().view(-1, 3 * imgsize * imgsize)
     # compute the maximum color for the r,g and b channels for each digit separately
@@ -681,7 +689,7 @@ def place_crop(crop_data,loc): # retina placement on GPU for training
     return out_retina
 
 
-def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sample_loader, return_loss = False, seen_labels = {}):
+def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sample_loader, return_loss = False, seen_labels = {}, blocks_dataset = None):
     vae.train()
     train_loss = 0
     dataiter_noSkip = iter(train_loader_noSkip) # the latent space is trained on EMNIST, MNIST, and f-MNIST
@@ -706,6 +714,8 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
         data_noSkip, batch_labels = next(dataiter_noSkip)
     
         data = data_noSkip
+        z = random.randint(0,len(blocks_dataset)-101)
+        blocks = blocks_dataset[z:z+100]
         
         optimizer.zero_grad()
         
@@ -754,12 +764,15 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
                 if r == 1:
                     whichdecode_use = 'shape'
                     keepgrad = ['shape']
+                    data = blocks #TEMP
                 elif r == 2:
                     whichdecode_use = 'color'
                     keepgrad = ['color']
+                    data = blocks #TEMP
                 else:
                     whichdecode_use = 'cropped'
                     keepgrad = ['shape', 'color']
+                    data = blocks #TEMP
                 
                 '''else:
                     data_skip = next(dataiter_fmnist_skip)
@@ -805,7 +818,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
             retinal_loss_train = loss.item()
 
         elif whichdecode_use == 'cropped': # cropped
-            loss = loss_function_crop(recon_batch, data[1], mu_shape, log_var_shape, mu_color, log_var_color)
+            loss = loss_function_crop(recon_batch, data, mu_shape, log_var_shape, mu_color, log_var_color)
             cropped_loss_train = loss.item()
 
         elif whichdecode_use == 'skip_cropped': # skip training

@@ -54,13 +54,14 @@ class No_Color_3dim:
         return img
 
 class Translate:
-    def __init__(self, scale, loc, max_width, min_width = 28):
+    def __init__(self, scale, loc, max_width, min_width = 28, build_ret = True):
         self.max_width = max_width
         self.min_width = min_width
         self.max_scale = max_width//2
         self.pos = torch.zeros(2, max_width).cuda()
         self.loc = loc
         self.scale = scale
+        self.build_ret = build_ret
 
     def __call__(self, img):
         if self.scale == 0:
@@ -99,11 +100,15 @@ class Translate:
             padding_right = self.max_width - img.size[0] - padding_left
             padding_bottom = random.randint(0, self.max_width - img.size[0])
             padding_top = self.max_width - img.size[0] - padding_bottom
-
-        padding = (padding_left, padding_top, padding_right, padding_bottom)
+        
         pos = self.pos.clone()
         pos[0][padding_left] = 1
         pos[1][padding_bottom] = 1
+        
+        if self.build_ret is False:
+            return 0, pos, scale_dist
+        
+        padding = (padding_left, padding_top, padding_right, padding_bottom)
         #print(padding_left,padding_bottom)
         return ImageOps.expand(img, padding), pos, scale_dist
 
@@ -154,6 +159,11 @@ class Dataset(data.Dataset):
                 else:
                     self.right_targets = []
                     self.left_targets = []
+                
+                if 'build_retina' in transforms:
+                    self.build_ret = transforms['build_retina']
+                else:
+                    self.build_ret = True
 
             else:
                 self.retina_size = None
@@ -258,7 +268,7 @@ class Dataset(data.Dataset):
             base_dataset = datasets.CIFAR10(root='./data', train=train, download=True, transform=None)
 
         elif os.path.exists(dataset):
-            pass
+            base_dataset = Image.open(rf'{dataset}')
 
         else:
             raise ValueError(f'{dataset} is not a valid base dataset')
@@ -266,14 +276,21 @@ class Dataset(data.Dataset):
         return base_dataset
 
     def __len__(self):
-        return len(self.dataset)
+        if type(self.dataset) != Image.Image:
+            return len(self.dataset)
+        else:
+            return 1
 
     def __getitem__(self, index):
-        image, target = self.dataset[index]
-        if self.name == 'emnist' and self.train == True:
-            image, target = self.dataset[self.indices[random.randint(0,len(self.indices)-1)]]
+        if type(self.dataset) != Image.Image:
+            image, target = self.dataset[index]
+            if self.name == 'emnist' and self.train == True:
+                image, target = self.dataset[self.indices[random.randint(0,len(self.indices)-1)]]
+            else:
+                target += self.target_dict[self.name][0]
         else:
-            target += self.target_dict[self.name][0]
+            image = self.dataset
+            target = 1
         col = None
         transform_list = []
         # append transforms according to transform attributes
@@ -310,7 +327,7 @@ class Dataset(data.Dataset):
             else:
                 translation = random.randint(1,2) #any
 
-            translate = PadAndPosition(Translate(scale, translation, self.retina_size))
+            translate = PadAndPosition(Translate(scale, translation, self.retina_size, self.build_ret))
             transform_list += [translate]
         else:
             scale = -1

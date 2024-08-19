@@ -17,8 +17,8 @@ bs = 100
 s_classes = 36
 c_classes = 10
 
-vae_shape_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=16)
-vae_color_labels= VAEcolorlabels(xlabel_dim=10, hlabel_dim=7,  zlabel_dim=16)
+vae_shape_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=8)
+vae_color_labels= VAEcolorlabels(xlabel_dim=10, hlabel_dim=7,  zlabel_dim=8)
 if torch.cuda.is_available():
     vae.cuda()
     vae_shape_labels.cuda()
@@ -77,7 +77,7 @@ def train_labels(epoch, train_loader):
         optimizer_shapelabels.zero_grad()
         optimizer_colorlabels.zero_grad()
 
-        image, labels = dataiter.next()
+        image, labels = next(dataiter)
         labels_for_shape=labels[0].clone()
         labels_for_color=labels[1].clone()
               
@@ -146,10 +146,9 @@ def train_labels(epoch, train_loader):
                      recon_labels.view(sample_size, 3, 28, 28),
                      recon_shapeOnly.view(sample_size, 3, 28, 28),
                      recon_colorOnly.view(sample_size, 3, 28, 28)], 0),
-                f'sample_training_labels_red_green/{str(epoch + 1).zfill(5)}_{str(i).zfill(5)}.png',
+                f'sample_training_labels/{str(epoch + 1).zfill(5)}_{str(i).zfill(5)}.png',
                 nrow=sample_size,
                 normalize=False,
-                range=(-1, 1),
             )
         if i > max_iter + 1:
             break

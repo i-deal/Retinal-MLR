@@ -55,6 +55,9 @@ mnist_dataset = Dataset('mnist', mnist_transforms)
 #emnist_test_dataset = Dataset('emnist', emnist_transforms, train= False)
 mnist_test_dataset = Dataset('mnist', mnist_test_transforms, train= False)
 
+#blocks
+block_dataset = torch.load('original_1.pth').cuda()
+
 #emnist_skip = Dataset('emnist', skip_transforms)
 mnist_skip = Dataset('mnist', skip_transforms)
 
@@ -62,7 +65,10 @@ mnist_skip = Dataset('mnist', skip_transforms)
 train_loader_noSkip = mnist_dataset.get_loader(bs)
 #sample_loader_noSkip = mnist_dataset.get_loader(25)
 test_loader_noSkip = mnist_test_dataset.get_loader(bs)
+#mnist_skip = torch.utils.data.DataLoader(dataset=ConcatDataset([block_dataset, mnist_skip]), batch_size=bs, shuffle=True,  drop_last= True)
 mnist_skip = mnist_skip.get_loader(bs)
+
+#add colorsquares dataset to training
 
 
 vae.to(device)
@@ -71,8 +77,8 @@ if load is True:
 else:
     loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]}
 seen_labels = {}
-for epoch in range(0, 1701):
-    loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None, True, seen_labels)
+for epoch in range(0, 60):
+    loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None, True, seen_labels, block_dataset)
     
     # save error quantities
     loss_dict['retinal_train'] += [loss_lst[0]]
