@@ -37,7 +37,7 @@ from tqdm import tqdm
 import imageio
 import os
 from torch.utils.data import DataLoader, Subset
-from sparsemax import Sparsemax
+
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 from joblib import dump, load
 import copy
@@ -123,10 +123,6 @@ l_dim = 64*2 # 2dim (2, retina_size) position
 zl_dim = 3
 sc_dim = 10
 
-# must call the dataset_builder function from a seperate .py file
-#to be moved
-# padded cifar10, 2d retina, sight word latent,
-
 
 #CNN VAE
 #this model takes in a single cropped image and a location 1-hot vector  (to be replaced by an attentional filter that determines location from a retinal image)
@@ -166,8 +162,10 @@ class VAE_CNN(nn.Module):
         self.fc4sc = nn.Linear(z_dim, sc_dim)  # scale
 
         self.fc5 = nn.Linear(h_dim2, int(imgsize/4) * int(imgsize/4) * 16)
-        self.fc8 = nn.Linear(32*14*14,32*14*14) #skip conection to hidden dim
-        self.fc9 = nn.Linear(32*14*14,32*14*14)
+        #self.fc8 = nn.Linear(32*14*14,32*14*14)#16*28*28,16*28*28) #skip conection to hidden dim
+        #self.fc9 = nn.Linear(32*14*14,32*14*14)
+        self.fc8 = nn.Linear(16*28*28,16*28*28)# #skip conection to hidden dim
+        self.fc9 = nn.Linear(16*28*28,16*28*28)
 
         self.conv5 = nn.ConvTranspose2d(16, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False)
         self.bn5 = nn.BatchNorm2d(64)
@@ -178,7 +176,7 @@ class VAE_CNN(nn.Module):
         self.conv8 = nn.ConvTranspose2d(16, 3, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn8 = nn.BatchNorm2d(3)
 
-        self.skip_bn = nn.BatchNorm2d(32)
+        self.skip_bn = nn.BatchNorm2d(16)
 
         # combine recon and location into retina now using fcs 2dconv and recurrence
         self.fc6 = nn.Linear((imgsize*imgsize*3)+zl_dim, 4000)
@@ -187,7 +185,6 @@ class VAE_CNN(nn.Module):
 
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax()
-        self.sparsemax = Sparsemax(dim=1)
         self.dropout = nn.Dropout(0.1)
         self.layernorm = nn.LayerNorm(32*14*14)
         self.sparse_relu = nn.Threshold(threshold=0.5, value=0)
@@ -200,14 +197,12 @@ class VAE_CNN(nn.Module):
     def encoder(self, x, l):
         b_dim = x.size(0)
         l = l.view(b_dim, l_dim)
-        h = self.relu(self.bn1(self.conv1(x)))
-        #h_pool, ind = self.pool1(h)
-        #print(h_pool.view(b_dim,-1).size())
-        #hskip = torch.cat([h_pool.view(b_dim,-1),ind.view(b_dim,-1)],1)
-        h = self.sparse_relu(self.bn2(self.conv2(h)))
+        h = self.sparse_relu(self.bn1(self.conv1(x)))
+        hskip = h.view(b_dim,-1)
+        h = self.relu(self.bn2(self.conv2(h)))
         #plt.hist(h.view(b_dim,-1)[0].cpu().detach())
         #plt.savefig('skipprerelut.png')
-        hskip = h.view(b_dim,-1)  # best so far
+        #hskip = h.view(b_dim,-1)  # best so far
         # ????
 
         
@@ -332,18 +327,18 @@ class VAE_CNN(nn.Module):
         return torch.sigmoid(h)
 
     def decoder_skip_cropped(self, z_shape, z_color, z_location, hskip):
-        mu_skip = self.fc8(hskip)
-        log_var_skip = self.fc9(hskip)
-        hskip = self.sampling(mu_skip, log_var_skip)
-        h= hskip#self.fc8(hskip)
+        #mu_skip = self.fc8(hskip)
+        #log_var_skip = self.fc9(hskip)
+        #hskip = self.sampling(mu_skip, log_var_skip)
+        h= self.fc8(hskip)#hskip#
         if self.training:
             h = self.dropout(h)
-        h = self.relu(self.skip_bn(h.view(-1,32,14,14))) #self.skip_bn(h.view(-1,32,14,14))
+        h = self.relu(self.skip_bn(h.view(-1,16,28,28))) #self.skip_bn(h.view(-1,16,28,28)) self.skip_bn(h.view(-1,32,14,14))
         #h = self.relu(self.fc9(h))
         #h = F.relu(self.fc5(h)).view(-1, 16, int(imgsize/4), int(imgsize/4))
         #h = self.relu(self.bn5(self.conv5(h.view(-1,16,7,7))))
         #h = self.relu(self.bn6(self.conv6(h.view(-1,64,7,7))))
-        h = self.relu(self.bn7(self.conv7(h.view(-1,32,14,14)))) #
+        #h = self.relu(self.bn7(self.conv7(h.view(-1,32,14,14)))) #
         #ind = h[:,784:].long()
         #h = h[:,:784]
         #h = self.unpool(h.view(-1,28,28),ind.view(-1,28,28))
@@ -418,7 +413,7 @@ class VAE_CNN(nn.Module):
             #ind = hskip[:,784:].long()
             #h = hskip[:,:784]
             #l1 = self.unpool(h.view(-1,28,28),ind.view(-1,28,28))
-            #h = self.relu(self.bn2(self.conv2(h.view(-1,16,28,28))))
+            h = self.relu(self.bn2(self.conv2(h.view(-1,16,28,28)))) ####
             
             h = h.view(-1,32,14,14)
             h = self.relu(self.bn3(self.conv3(h)))
@@ -704,7 +699,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
     max_iter = 600
     loader=tqdm(train_loader_noSkip, total = max_iter)
 
-    retinal_loss_train, cropped_loss_train = 0, 0 # loss metrics returned to training.py
+    retinal_loss_train, cropped_loss_train = 0, 0 # loss metrics returned to Training.py
 
     if epoch >= 250:
         m = 6
@@ -714,8 +709,10 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
         data_noSkip, batch_labels = next(dataiter_noSkip)
     
         data = data_noSkip
-        z = random.randint(0,len(blocks_dataset)-101)
-        blocks = blocks_dataset[z:z+100]
+        z = random.randint(0,len(blocks_dataset)-201)
+        blocks = blocks_dataset[z:z+200]
+        #print(blocks.size())
+        #data = blocks
         
         optimizer.zero_grad()
         
@@ -749,8 +746,10 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
 
         elif count% m == 3:
             if epoch <= 2000:
-                whichdecode_use = 'location'
-                keepgrad = ['location']
+                '''whichdecode_use = 'location'
+                keepgrad = ['location']'''
+                whichdecode_use = 'cropped'
+                keepgrad = ['shape', 'color']
             else:
                 whichdecode_use = 'retinal'
                 keepgrad = [] #all except skip connection
@@ -834,7 +833,7 @@ def train(epoch, train_loader_noSkip, emnist_skip, fmnist_skip, test_loader, sam
         train_loss += loss.item()
         optimizer.step()
         loader.set_description((f'epoch: {epoch}; mse: {loss.item():.5f};'))
-        seen_labels = update_seen_labels(batch_labels,seen_labels)
+        seen_labels = None #update_seen_labels(batch_labels,seen_labels)
         #if count % (0.8*max_iter) == 0:
           #  data, labels = next(sample_iter)
            # progress_out(data, epoch, count)
@@ -948,7 +947,7 @@ def activation_fromBP(L1_activationBP, L2_activationBP, layernum):
         color_act_bp = vae.sampling(mu_color, log_var_color)
     return shape_act_bp, color_act_bp
 
-def BPTokens_storage(bpsize, bpPortion,l1_act, l2_act, shape_act, color_act, location_act, shape_coeff, color_coeff, location_coeff, l1_coeff,l2_coeff, bs_testing, normalize_fact):
+def BPTokens_storage(bpsize, bpPortion,l1_act, l2_act, shape_act, color_act, location_act, shape_coeff, color_coeff, location_coeff, l1_coeff,l2_coeff, bs_testing, normalize_fact, std=1):
     notLink_all = list()  # will be used to accumulate the specific token linkages
     BP_in_all = list()  # will be used to accumulate the bp activations for each item
     tokenBindings = list()
@@ -957,7 +956,7 @@ def BPTokens_storage(bpsize, bpPortion,l1_act, l2_act, shape_act, color_act, loc
     bp_in_location_dim = location_act.shape[1]
     bp_in_L1_dim = l1_act.shape[1]
     bp_in_L2_dim = l2_act.shape[1]
-    std = 1
+    #std = 1
     shape_fw = torch.randn(bp_in_shape_dim,
                             bpsize).cuda() *std  # make the randomized fixed weights to the binding pool
     color_fw = torch.randn(bp_in_color_dim, bpsize).cuda() *std

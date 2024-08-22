@@ -9,7 +9,9 @@ colornames = ["red", "blue","green","purple","yellow","cyan","orange","brown","p
 #and the VAE bottleneck is split, having two different maps
 #one is trained with a loss function for color only (eliminating all shape info, reserving only the brightest color)
 #the other is trained with a loss function for shape only
-
+#print('pause for 1hr while previous run finishes')
+#import time
+#time.sleep((60**2)) # wait 1 hr before starting
 
 # prerequisites
 import torch
@@ -63,7 +65,7 @@ if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 
 #load_checkpoint('output/checkpoint_threeloss_singlegrad200_smfc.pth'.format(modelNumber=modelNumber))
-load_checkpoint('output_mnist_2drecurr1/checkpoint_most_recent.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
+load_checkpoint('output_mnist_2drecurr0/checkpoint_most_recent.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
 
 #print('Loading the classifiers')
 '''clf_shapeS=load('classifier_output/ss.joblib')
@@ -84,8 +86,8 @@ shapeLabel_coeff= 1   #coefficient of the shape label
 colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
-bpsize = 3000#00         #size of the binding pool
-token_overlap =0.2
+bpsize = 10000#00         #size of the binding pool
+token_overlap =0.6
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
 normalize_fact_familiar=1
@@ -103,13 +105,14 @@ smallpermnum = 100
 Fig2aFlag = 0       #binding pool reconstructions   NOTWORKING
 fig_new_loc = 0     # reconstruct retina images with digits in the location opposite of training
 fig_loc_compare = 0 # compare retina images with digits in the same location as training and opposite location  
-Fig2bFlag = 0      #novel objects stored and retrieved from memory, one at a time
-Fig2btFlag =0      #novel objects stored and retrieved from memory, in tokens
+Fig2bFlag = 1    #novel objects stored and retrieved from memory, one at a time
+Fig2btFlag =1     #novel objects stored and retrieved from memory, in tokens
 Fig2cFlag = 0      #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
 Fig2nFlag = 0
-change_detect_flag = 1
+change_detect_flag = 0
 change_detect_2_flag = 0
+BP_std = 0
     
 bindingtestFlag = 0  #simulating binding shape-color of two items  NOT WORKING
 
@@ -206,9 +209,9 @@ if change_detect_flag == 1:
     out_r = {0:[], 1:[]} #[]
     out_dprime = {0:[], 1:[]} # []
     threshold = {0:[], 1:[]} #[]
-    setsize_range = range(2, max_set_size+1, 1)
-
-    for t in range(0,2):
+    setsize_range = [2, 3, 4, 6, 8] #range(2, max_set_size+1, 1)
+    task = '_color'
+    for t in range(1,2):
         for i in setsize_range:
             if t == 0:
                 frame_count = 1
@@ -217,18 +220,18 @@ if change_detect_flag == 1:
             
             with torch.no_grad():
                 if t == 0:
-                    original_t = torch.load(f'original_{i}.pth').cpu()
-                    change_t = torch.load(f'change_{i}.pth').cpu()
+                    original_t = torch.load(f'original_{i}{task}.pth').cpu()
+                    change_t = torch.load(f'change_{i}{task}.pth').cpu()
                 else:
-                    original_t = torch.load(f'original_frames_{i}.pth').cpu()
-                    change_t = torch.load(f'change_frames_{i}.pth').cpu()
+                    original_t = torch.load(f'original_frames_{i}{task}.pth').cpu()
+                    change_t = torch.load(f'change_{i}{task}.pth').cpu()
 
                 print(len(original_t),len(change_t))
                 r_lst0 = []
                 r_lst1 = []
                 no_change_detected = []
                 change_detected = []
-                for b in range(0,20): #20
+                for b in range(0,2): #20
                     print(i,b)
                     torch.cuda.empty_cache()
                     samples = 40
@@ -250,33 +253,39 @@ if change_detect_flag == 1:
                     bp_junk = torch.zeros(frame_count,1).cuda()
                     for n in range(batch_size):
                         
-                        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_original[n].view(frame_count,-1), bp_junk, bp_junk,bp_junk,bp_junk,0, 0,0,1,0,frame_count,normalize_fact_novel)
-                        shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_original = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_original[1].view(frame_count,-1), bp_junk, bp_junk,bp_junk,bp_junk,frame_count,normalize_fact_novel)
+                        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_original[n].view(frame_count,-1), bp_junk, shape_act,color_act,bp_junk,0, 0,0,1,0,frame_count,normalize_fact_novel)
+                        shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_original = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_original[1].view(frame_count,-1), bp_junk, shape_act,color_act,bp_junk,frame_count,normalize_fact_novel)
                         #BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_change[n,:].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,0, 0,0,1,0,1,normalize_fact_novel)
                         #shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_change = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, l1_change[1].view(1,-1), bp_junk, bp_junk,bp_junk,bp_junk,1,normalize_fact_novel)
-                        bp_original_l1 += [BP_layerI_original]
+                        if t == 0:
+                            bp_original_l1 += [BP_layerI_original]
+                        else:
+                            bp_original_l1 += [BP_layerI_original] #[[shape_out_all, color_out_all]]
                         #bp_change_l1 += [BP_layerI_change]
 
                     #bp_original_l1 = torch.cat(bp_original_l1, dim=0)
                     #bp_change_l1 = torch.cat(bp_change_l1, dim=0)
                     original_BP = []
                     for n in range(len(original)):
-                        recon, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_original_l1[n].view(frame_count,-1),BP_layer2_out,3, 'skip_cropped')
-                        if t != 0:
+                        if t == 0:
+                            recon, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_original_l1[n].view(frame_count,-1),BP_layer2_out,3, 'skip_cropped')
+                        else:
+                            recon = recon, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_original_l1[n].view(frame_count,-1),BP_layer2_out,3, 'skip_cropped') #vae.decoder_cropped(bp_original_l1[n][0].view(frame_count,-1),bp_original_l1[n][1].view(frame_count,-1),0)
                             recon = build_partial(recon.view(1,frame_count,3,28,28), len(recon))
                         original_BP += [recon]
                     
                     if t == 1:
                         original = build_partial(original, len(original[0]))
-                        change = build_partial(change, len(change[0]))
+                        #change = build_partial(change, len(change[0]))
+
                     #change_BP, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_change_l1.view(batch_size,-1),BP_layer2_out,3, 'skip_cropped')
 
-                    #save_image(torch.cat([original, original_BP, change, change_BP],dim=0), f'changedetect_bp{i}.png', nrow = batch_size, normalize=False)
+                    save_image(torch.cat([original[0].view(1,3,28,28), original_BP[0]],dim=0), f'comp_memory.png', nrow = 1, normalize=False)
                     print(len(original_BP))
                     for j in range(len(original)):
                         #x, y, z = original[i].cpu().detach().view(1,-1), original_BP[i].cpu().detach().view(1,-1), change_BP[i].cpu().detach().view(1,-1)
                         x, y, z = original[j], original_BP[j].view(3,28,28), change[j]
-                        r_original = compute_correlation(x,y) #cosine_similarity(x,y) # 
+                        r_original = compute_correlation(y,x) #cosine_similarity(x,y) # 
                         r_change = compute_correlation(y,z)#cosine_similarity(x,z) #
                         
                         r_lst0 += [r_original]
@@ -298,6 +307,7 @@ if change_detect_flag == 1:
             avg_r0 = sum(r_lst0)/(len(r_lst0))
             avg_r1 = sum(r_lst1)/(len(r_lst1))
             out_r[t] += [[avg_r0.item(), avg_r1.item()]]
+            #print(out_r[t])
 
             c_threshold = (avg_r0.item() + avg_r1.item())/2
             
@@ -324,8 +334,18 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'correlation vs set size, {batch_size*20} trials, BP: {bpPortion}')
-    plt.savefig('change_detect.png')
+    plt.title(f'color change detection, {batch_size*25} trials, BP: {bpPortion}')
+    plt.savefig(f'change_detect{task}.png')
+    plt.close()
+
+    plt.plot(setsize_range, [out_r[1][i][0] for i in range(len(out_r[1]))], label='no change')
+    plt.plot(setsize_range, [out_r[1][i][1] for i in range(len(out_r[1]))], label='change')
+    plt.plot(setsize_range, threshold[1], label='threshold, compositional')
+    plt.xlabel('set size')
+    plt.ylabel('r')
+    plt.legend()
+    plt.title(f'color change detection compositonal memory, {batch_size*25} trials, BP: {bpPortion}')
+    plt.savefig(f'change_detect_compositional{task}.png')
     plt.close()
 
     plt.plot(setsize_range, out_dprime[0], label=f'dprime for whole memory')
@@ -333,8 +353,8 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('dprime')
     plt.legend()
-    plt.title(f'dprime vs set size, {batch_size*20} trials, BP: {bpPortion}')
-    plt.savefig('change_detect_accuracy.png')
+    plt.title(f'color change dprime vs set size, {batch_size*20} trials, BP: {bpPortion}')
+    plt.savefig(f'change_detect_accuracy{task}.png')
 
 if change_detect_2_flag == 1:
     def compute_dprime(no_change_vector, change_vector):
@@ -883,20 +903,48 @@ if Fig2nFlag==1:
     recon_sample = vae.decoder_shape(z_img, 0, 0)
     out_img = torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize),output,recon_sample],dim=0)
     utils.save_image(out_img,f'output{modelNumber}/bengali_recon.png',numimg)
-    
-if Fig2bFlag==1:
+
+if BP_std == 1:
+    def compute_correlation(x, y):
+        assert x.shape == y.shape, "Tensors must have the same shape"
+        
+        # Flatten tensors if they're multidimensional
+        x = x.view(-1)
+        y = y.view(-1)
+        #x = replace_near_zero(x)
+        #y = replace_near_zero(y)
+        
+        # Compute means
+        x_mean = torch.mean(x)
+        y_mean = torch.mean(y)
+        
+        # Compute the numerator
+        numerator = torch.sum((x - x_mean) * (y - y_mean))
+        
+        # Compute the denominator
+        x_var = torch.sum((x - x_mean)**2)
+        y_var = torch.sum((y - y_mean)**2)
+        denominator = torch.sqrt(x_var * y_var)
+        
+        # Compute correlation
+        correlation = numerator / denominator
+        
+        return correlation
+    #from dataset_builder import Colorize_specific
     all_imgs = []
-    print('generating Figure 2b, Novel characters retrieved from memory of L1 and Bottleneck')
-    retina_size = 100
-    imgsize = 28
+    print('computing BP std correlations')
     numimg = 7
     vae.eval()
     #load in some examples of Bengali Characters
     for i in range (1,numimg+1):
+        #colorize_img = Colorize_specific(col=1)
         img = Image.open(f'current_bengali/{i}_thick.png')# Image.open(f'change_image_{i}.png') #
         img = img.resize((28, 28))
+        #img_new = colorize_img(img)   # Currently broken, but would add a color to each
         img_new = convert_tensor(img)[0:3,:,:]
-        #img_new = Colorize_func(img)   # Currently broken, but would add a color to each
+        #img_new[0] = torch.zeros_like(img_new[0])
+        #img_new[2] = torch.zeros_like(img_new[1])
+
         all_imgs.append(img_new)
     all_imgs = torch.stack(all_imgs)
     imgs = all_imgs.view(-1, 3 * imgsize * imgsize).cuda()
@@ -908,6 +956,73 @@ if Fig2bFlag==1:
     #push the images through the encoder
     l1_act, l2_act, shape_act, color_act, location_act = activations(imgs.view(-1,3,28,28), location)
     
+    #now run them through the binding pool!
+    #store the items and then retrive them, and do it separately for shape+color maps, then L1, then L2. 
+    #first store and retrieve the shape, color and location maps
+    r_lst = []
+    std_range = []
+    with torch.no_grad():
+        for c in range(0,21):
+            std = c * 0.05
+            imgmatrixL1skip  = torch.empty((0,3,28,28)).cuda()
+            for n in range (0,numimg):
+                    # reconstruct directly from activation
+                #recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped')
+                
+                #now store/retrieve from L1
+                BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),0, 0,0,1,0,1,normalize_fact_novel,std)
+                shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
+                #print(BP_layerI_out.size())
+                # reconstruct  from BP version of layer 1, run through the skip
+                #BP_layerI_out = l1_act[n,:].view(1,-1) #remove
+                #BP_layerI_out = vae.sparse_relu(BP_layerI_out*(1/2))
+
+                BP_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layerI_out,3, 'skip_cropped')
+
+                imgmatrixL1skip = torch.cat([imgmatrixL1skip,BP_layer1_skip])
+            
+            r = compute_correlation(imgs.view(-1,3,28,28), imgmatrixL1skip.view(-1,3,28,28))
+            r_lst += [r.item()]
+            std_range += [std]
+    plt.plot(std_range, r_lst)
+    plt.xlabel('BP std')
+    plt.ylabel('r')
+    plt.title(f'Novel recon correlation vs BP std')
+    plt.savefig(f'BP_std_corr.png')
+    plt.close()
+
+if Fig2bFlag==1:
+    #from dataset_builder import Colorize_specific
+    all_imgs = []
+    print('generating Figure 2b, Novel characters retrieved from memory of L1 and Bottleneck')
+    retina_size = 100
+    imgsize = 28
+    numimg = 7
+    vae.eval()
+    #load in some examples of Bengali Characters
+    for i in range (1,numimg+1):
+        #colorize_img = Colorize_specific(col=1)
+        img = Image.open(f'current_bengali/{i}_thick.png')# Image.open(f'change_image_{i}.png') #
+        img = img.resize((28, 28))
+        #img_new = colorize_img(img)   # Currently broken, but would add a color to each
+        img_new = convert_tensor(img)[0:3,:,:]
+        #img_new[0] = torch.zeros_like(img_new[0])
+        #img_new[2] = torch.zeros_like(img_new[1])
+
+        all_imgs.append(img_new)
+    all_imgs = torch.stack(all_imgs)
+    imgs = all_imgs.view(-1, 3 * imgsize * imgsize).cuda()
+    location = torch.zeros(imgs.size()[0], vae.l_dim).cuda()
+    location[0] = 1
+
+    blank = torch.zeros(1,3,28,28).cuda()
+    blank[:,:,]
+    #push the images through the encoder
+    l1_act, l2_act, shape_act, color_act, location_act = activations(imgs.view(-1,3,28,28), location)
+    '''for i in range(len(l1_act)):
+        z = len(l1_act[i])//2
+        l1_act[i,:z]  *= -1'''
+
     imgmatrixL1skip  = torch.empty((0,3,28,28)).cuda()
     imgmatrixL1noskip  = torch.empty((0,3,28,28)).cuda()
     imgmatrixMap  = torch.empty((0,3,28,28)).cuda()
@@ -915,32 +1030,36 @@ if Fig2bFlag==1:
     #now run them through the binding pool!
     #store the items and then retrive them, and do it separately for shape+color maps, then L1, then L2. 
     #first store and retrieve the shape, color and location maps
-    
-    for n in range (0,numimg):
-            # reconstruct directly from activation
-        #recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped')
-        
-        #now store/retrieve from L1
-        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),0, 0,0,1,0,1,normalize_fact_novel)
-        shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
-        #print(BP_layerI_out.size())
-        # reconstruct  from BP version of layer 1, run through the skip
-        #BP_layerI_out = l1_act[n,:].view(1,-1) #remove
-        BP_layerI_out = vae.sparse_relu(BP_layerI_out*(1/2))
-        BP_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layer2_out,3, 'skip_cropped')
+    with torch.no_grad():
+        for n in range (0,numimg):
+                # reconstruct directly from activation
+            #recon_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped')
+            
+            #now store/retrieve from L1
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),0, 0,0,1,0,1,normalize_fact_novel)
+            shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
+            #print(BP_layerI_out.size())
+            # reconstruct  from BP version of layer 1, run through the skip
+            #BP_layerI_out = l1_act[n,:].view(1,-1) #remove
+            #BP_layerI_out = vae.sparse_relu(BP_layerI_out*(1/2))
+            '''for i in range(len(BP_layerI_out)):
+                z = len(BP_layerI_out[i])//2
+                BP_layerI_out[i,:z]  *= -1'''
 
-        # reconstruct  from BP version of layer 1, run through the bottleneck
-        BP_layer1_noskip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layer2_out, 3, 'cropped')
-        
-        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),1, 1,0,0,0,1,normalize_fact_novel)
-        shape_out_BP, color_out_BP, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
-         
-        #reconstruct from BP version of the shape and color maps
-        retrievals = vae.decoder_cropped(shape_out_BP, color_out_BP,0,0).cuda()
+            BP_layer1_skip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layer2_out,3, 'skip_cropped')
 
-        imgmatrixL1skip = torch.cat([imgmatrixL1skip,BP_layer1_skip])
-        imgmatrixL1noskip = torch.cat([imgmatrixL1noskip,BP_layer1_noskip])
-        imgmatrixMap= torch.cat([imgmatrixMap,retrievals])
+            # reconstruct  from BP version of layer 1, run through the bottleneck
+            BP_layer1_noskip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(BP_layerI_out.view(1,-1),BP_layer2_out, 3, 'cropped')
+            
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),1, 1,0,0,0,1,normalize_fact_novel)
+            shape_out_BP, color_out_BP, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
+            
+            #reconstruct from BP version of the shape and color maps
+            retrievals = vae.decoder_cropped(shape_out_BP, color_out_BP,0,0).cuda()
+
+            imgmatrixL1skip = torch.cat([imgmatrixL1skip,BP_layer1_skip])
+            imgmatrixL1noskip = torch.cat([imgmatrixL1noskip,BP_layer1_noskip])
+            imgmatrixMap= torch.cat([imgmatrixMap,retrievals])
 
     #save an image showing:  original images, reconstructions directly from L1,  from L1 BP, from L1 BP through bottleneck, from maps BP
     save_image(torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize), imgmatrixL1skip, imgmatrixL1noskip, imgmatrixMap], 0),'output{num}/figure2b.png'.format(num=modelNumber),
@@ -969,27 +1088,30 @@ if Fig2btFlag==1:
     l1_act, l2_act, shape_act, color_act, location_act = activations(imgs.view(-1,3,28,28))
     emptyshape = torch.empty((1,3,28,28)).cuda()
     # store 1 -> numimg items
+    for i in range(len(l1_act)):
+        z = len(l1_act[i])//2
+        l1_act[i,:z]  *= -1
     for n in range(1,numimg+1):
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,0, 0,0,1,0,n,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, l2_out_all, l1_out_all = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,n,normalize_fact_novel)
-        
-        
-
-        
+               
         plt.close()
 
         # Create a figure with two subplots side by side
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
         # Plot the first distribution (post BP)
-        ax2.scatter(l1_out_all[0].cpu().detach(), l1_act[0].cpu().detach()) 
-        ax2.set_title('No relu')
-        #ax2.set_xlabel('Value')
-        #ax2.set_ylabel('Frequency')
-        l1_out_all = vae.sparse_relu(l1_out_all*(1/2)) 
+        ax2.hist(l1_out_all[0].cpu().detach())
+        ax2.set_title('BP')
+        ax2.set_xlabel('Value')
+        ax2.set_ylabel('Frequency')
+        for i in range(len(l1_out_all)):
+            z = len(l1_out_all[i])//2
+            l1_out_all[i,:z]  *= -1
+        #l1_out_all = vae.sparse_relu(l1_out_all*(1/2)) 
         # Plot the second distribution (pre BP)
-        ax1.scatter(l1_out_all[0].cpu().detach(), l1_act[0].cpu().detach()) 
-        ax1.set_title('relu')
+        ax1.hist(l1_act[0].cpu().detach()) 
+        ax1.set_title('pre BP')
         #ax1.set_xlabel('Value')
         #ax1.set_ylabel('Frequency')
 
