@@ -91,14 +91,12 @@ for epoch in range(0, 60):
     if epoch in [1500,1600,1700]:
         checkpoint =  {
                  'state_dict': vae.state_dict(),
-                 'optimizer' : optimizer.state_dict(),
                  'labels': seen_labels
                       }
         torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_{str(epoch)}.pth')
     else:
         checkpoint =  {
             'state_dict': vae.state_dict(),
-            'optimizer' : optimizer.state_dict(),
             'labels': seen_labels
                 }
         torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_most_recent.pth')

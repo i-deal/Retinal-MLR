@@ -9,9 +9,9 @@ colornames = ["red", "blue","green","purple","yellow","cyan","orange","brown","p
 #and the VAE bottleneck is split, having two different maps
 #one is trained with a loss function for color only (eliminating all shape info, reserving only the brightest color)
 #the other is trained with a loss function for shape only
-#print('pause for 1hr while previous run finishes')
+#print('pause for 1.5hr while previous run finishes')
 #import time
-#time.sleep((60**2)) # wait 1 hr before starting
+#time.sleep(1.5*(60**2)) # wait 1 hr before starting
 
 # prerequisites
 import torch
@@ -86,8 +86,8 @@ shapeLabel_coeff= 1   #coefficient of the shape label
 colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
-bpsize = 10000#00         #size of the binding pool
-token_overlap =0.6
+bpsize = 12000#00         #size of the binding pool
+token_overlap =0.3
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
 normalize_fact_familiar=1
@@ -105,12 +105,12 @@ smallpermnum = 100
 Fig2aFlag = 0       #binding pool reconstructions   NOTWORKING
 fig_new_loc = 0     # reconstruct retina images with digits in the location opposite of training
 fig_loc_compare = 0 # compare retina images with digits in the same location as training and opposite location  
-Fig2bFlag = 1    #novel objects stored and retrieved from memory, one at a time
-Fig2btFlag =1     #novel objects stored and retrieved from memory, in tokens
+Fig2bFlag = 0    #novel objects stored and retrieved from memory, one at a time
+Fig2btFlag =0     #novel objects stored and retrieved from memory, in tokens
 Fig2cFlag = 0      #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
 Fig2nFlag = 0
-change_detect_flag = 0
+change_detect_flag = 1
 change_detect_2_flag = 0
 BP_std = 0
     
@@ -210,8 +210,8 @@ if change_detect_flag == 1:
     out_dprime = {0:[], 1:[]} # []
     threshold = {0:[], 1:[]} #[]
     setsize_range = [2, 3, 4, 6, 8] #range(2, max_set_size+1, 1)
-    task = '_color'
-    for t in range(1,2):
+    task = ''
+    for t in range(0,2): # must start at 0
         for i in setsize_range:
             if t == 0:
                 frame_count = 1
@@ -231,10 +231,10 @@ if change_detect_flag == 1:
                 r_lst1 = []
                 no_change_detected = []
                 change_detected = []
-                for b in range(0,2): #20
+                for b in range(0,40): #20
                     print(i,b)
                     torch.cuda.empty_cache()
-                    samples = 40
+                    samples = 20
                     batch_id = b*samples
                     original = original_t[batch_id: batch_id+samples].cuda()
                     change = change_t[batch_id: batch_id+samples].cuda()
@@ -327,6 +327,7 @@ if change_detect_flag == 1:
 
             out_dprime[t] += [compute_dprime(no_change_detected, change_detected)]
             threshold[t] += [c_threshold]
+    print(out_r[0])
     torch.save([out_r[0][i][0] for i in range(len(out_r[0]))], 'location_change_detect_r.pth')
     plt.plot(setsize_range, [out_r[0][i][0] for i in range(len(out_r[0]))], label='no change')
     plt.plot(setsize_range, [out_r[0][i][1] for i in range(len(out_r[0]))], label='change')
@@ -334,7 +335,7 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'color change detection, {batch_size*25} trials, BP: {bpPortion}')
+    plt.title(f'color change detection, {batch_size*50} trials, BP: {bpPortion}')
     plt.savefig(f'change_detect{task}.png')
     plt.close()
 
@@ -344,7 +345,7 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'color change detection compositonal memory, {batch_size*25} trials, BP: {bpPortion}')
+    plt.title(f'color change detection compositonal memory, {batch_size*50} trials, BP: {bpPortion}')
     plt.savefig(f'change_detect_compositional{task}.png')
     plt.close()
 

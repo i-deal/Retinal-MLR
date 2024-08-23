@@ -165,7 +165,7 @@ class VAE_CNN(nn.Module):
         #self.fc8 = nn.Linear(32*14*14,32*14*14)#16*28*28,16*28*28) #skip conection to hidden dim
         #self.fc9 = nn.Linear(32*14*14,32*14*14)
         self.fc8 = nn.Linear(16*28*28,16*28*28)# #skip conection to hidden dim
-        self.fc9 = nn.Linear(16*28*28,16*28*28)
+        #self.fc9 = nn.Linear(16*28*28,16*28*28)
 
         self.conv5 = nn.ConvTranspose2d(16, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False)
         self.bn5 = nn.BatchNorm2d(64)
@@ -186,9 +186,9 @@ class VAE_CNN(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax()
         self.dropout = nn.Dropout(0.1)
-        self.layernorm = nn.LayerNorm(32*14*14)
+        #self.layernorm = nn.LayerNorm(32*14*14)
         self.sparse_relu = nn.Threshold(threshold=0.5, value=0)
-        self.skipconv = nn.Conv2d(16,16,kernel_size=1,stride=1,padding =0,bias=False)
+        #self.skipconv = nn.Conv2d(16,16,kernel_size=1,stride=1,padding =0,bias=False)
 
         # map scalars
         self.shape_scale = 1 #1.9
@@ -199,19 +199,11 @@ class VAE_CNN(nn.Module):
         l = l.view(b_dim, l_dim)
         h = self.sparse_relu(self.bn1(self.conv1(x)))
         hskip = h.view(b_dim,-1)
-        h = self.relu(self.bn2(self.conv2(h)))
-        #plt.hist(h.view(b_dim,-1)[0].cpu().detach())
-        #plt.savefig('skipprerelut.png')
-        #hskip = h.view(b_dim,-1)  # best so far
-        # ????
-
-        
+        h = self.relu(self.bn2(self.conv2(h)))        
         h = self.relu(self.bn3(self.conv3(h)))
         h = self.relu(self.bn4(self.conv4(h)))
-             
         h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
         h = self.relu(self.fc_bn2(self.fc2(h)))
-        #hskip = self.fc8(h) # skip con fc2 to fc5
 
         return self.fc31(h), self.fc32(h), self.fc33(h), self.fc34(h), self.fc35(l), self.fc36(l), 0, 0, hskip # mu, log_var
 
