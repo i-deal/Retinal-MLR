@@ -105,7 +105,7 @@ smallpermnum = 100
 Fig2aFlag = 0       #binding pool reconstructions   NOTWORKING
 fig_new_loc = 0     # reconstruct retina images with digits in the location opposite of training
 fig_loc_compare = 0 # compare retina images with digits in the same location as training and opposite location  
-Fig2bFlag = 0    #novel objects stored and retrieved from memory, one at a time
+Fig2bFlag = 0   #novel objects stored and retrieved from memory, one at a time
 Fig2btFlag =0     #novel objects stored and retrieved from memory, in tokens
 Fig2cFlag = 0      #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
@@ -209,8 +209,8 @@ if change_detect_flag == 1:
     out_r = {0:[], 1:[]} #[]
     out_dprime = {0:[], 1:[]} # []
     threshold = {0:[], 1:[]} #[]
-    setsize_range = [2, 3, 4, 6, 8] #range(2, max_set_size+1, 1)
-    task = ''
+    setsize_range = [2,3,4, 6, 8] #range(2, max_set_size+1, 1)
+    task = '_color'
     for t in range(0,2): # must start at 0
         for i in setsize_range:
             if t == 0:
@@ -231,7 +231,7 @@ if change_detect_flag == 1:
                 r_lst1 = []
                 no_change_detected = []
                 change_detected = []
-                for b in range(0,40): #20
+                for b in range(0,1): #20
                     print(i,b)
                     torch.cuda.empty_cache()
                     samples = 20
@@ -335,7 +335,7 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'color change detection, {batch_size*50} trials, BP: {bpPortion}')
+    plt.title(f'color change detection, {batch_size*2} trials, BP: {bpPortion}')
     plt.savefig(f'change_detect{task}.png')
     plt.close()
 
@@ -345,7 +345,7 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'color change detection compositonal memory, {batch_size*50} trials, BP: {bpPortion}')
+    plt.title(f'color change detection compositonal memory, {batch_size*2} trials, BP: {bpPortion}')
     plt.savefig(f'change_detect_compositional{task}.png')
     plt.close()
 
@@ -354,7 +354,7 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('dprime')
     plt.legend()
-    plt.title(f'color change dprime vs set size, {batch_size*20} trials, BP: {bpPortion}')
+    plt.title(f'color change dprime vs set size, {batch_size*2} trials, BP: {bpPortion}')
     plt.savefig(f'change_detect_accuracy{task}.png')
 
 if change_detect_2_flag == 1:
