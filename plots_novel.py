@@ -86,7 +86,7 @@ shapeLabel_coeff= 1   #coefficient of the shape label
 colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
-bpsize = 12000#00         #size of the binding pool
+bpsize = 9000#00         #size of the binding pool
 token_overlap =0.3
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
@@ -111,7 +111,7 @@ Fig2cFlag = 0      #familiar objects stored and retrieved from memory, using tok
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
 Fig2nFlag = 0
 change_detect_flag = 1
-change_detect_2_flag = 0
+change_detect_2_flag = 1
 BP_std = 0
     
 bindingtestFlag = 0  #simulating binding shape-color of two items  NOT WORKING
@@ -280,7 +280,7 @@ if change_detect_flag == 1:
 
                     #change_BP, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(bp_change_l1.view(batch_size,-1),BP_layer2_out,3, 'skip_cropped')
 
-                    save_image(torch.cat([original[0].view(1,3,28,28), original_BP[0]],dim=0), f'comp_memory.png', nrow = 1, normalize=False)
+                    save_image(torch.cat([original[0].view(1,3,28,28), original_BP[0]],dim=0), f'change_detect/memory/comp_memory{t}_{i}.png', nrow = 1, normalize=False)
                     print(len(original_BP))
                     for j in range(len(original)):
                         #x, y, z = original[i].cpu().detach().view(1,-1), original_BP[i].cpu().detach().view(1,-1), change_BP[i].cpu().detach().view(1,-1)
@@ -328,6 +328,7 @@ if change_detect_flag == 1:
             out_dprime[t] += [compute_dprime(no_change_detected, change_detected)]
             threshold[t] += [c_threshold]
     print(out_r[0])
+    batch_size = 500
     torch.save([out_r[0][i][0] for i in range(len(out_r[0]))], 'location_change_detect_r.pth')
     plt.plot(setsize_range, [out_r[0][i][0] for i in range(len(out_r[0]))], label='no change')
     plt.plot(setsize_range, [out_r[0][i][1] for i in range(len(out_r[0]))], label='change')
@@ -335,18 +336,18 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'color change detection, {batch_size*2} trials, BP: {bpPortion}')
-    plt.savefig(f'change_detect{task}.png')
+    plt.title(f'location change detection, {batch_size*2} trials, BP: {bpPortion}')
+    plt.savefig(f'change_detect/change_detect_non_comp{task}.png')
     plt.close()
 
     plt.plot(setsize_range, [out_r[1][i][0] for i in range(len(out_r[1]))], label='no change')
     plt.plot(setsize_range, [out_r[1][i][1] for i in range(len(out_r[1]))], label='change')
-    plt.plot(setsize_range, threshold[1], label='threshold, compositional')
+    plt.plot(setsize_range, threshold[1], label='threshold')
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.legend()
-    plt.title(f'color change detection compositonal memory, {batch_size*2} trials, BP: {bpPortion}')
-    plt.savefig(f'change_detect_compositional{task}.png')
+    plt.title(f'location change detection compositonal memory, {batch_size*2} trials, BP: {bpPortion}')
+    plt.savefig(f'change_detect/change_detect_compositional{task}.png')
     plt.close()
 
     plt.plot(setsize_range, out_dprime[0], label=f'dprime for whole memory')
@@ -354,8 +355,8 @@ if change_detect_flag == 1:
     plt.xlabel('set size')
     plt.ylabel('dprime')
     plt.legend()
-    plt.title(f'color change dprime vs set size, {batch_size*2} trials, BP: {bpPortion}')
-    plt.savefig(f'change_detect_accuracy{task}.png')
+    plt.title(f'location change dprime vs set size, {batch_size*2} trials, BP: {bpPortion}')
+    plt.savefig(f'change_detect/change_detect_accuracy{task}.png')
 
 if change_detect_2_flag == 1:
     def compute_dprime(no_change_vector, change_vector):
@@ -451,12 +452,12 @@ if change_detect_2_flag == 1:
     threshold = {0:[], 1:[]} #[]
     setsize_range = range(8,9)
     threshold_data = torch.load('location_change_detect_r.pth')
-    #print(threshold_data)
+    print(threshold_data)
 
     for b in range(0,1): #20
         for i in setsize_range:
             torch.cuda.empty_cache()
-            samples = 50
+            samples = 20
             batch_id = b*samples
             #original = torch.load(f'original_{i}.pth')[batch_id: batch_id+samples].cuda()
             #change = torch.load(f'change_{i}.pth')[batch_id: batch_id+samples].cuda()
@@ -553,10 +554,10 @@ if change_detect_2_flag == 1:
                 out_r['partial'] = [(avg_r2.item()+out_r['partial'][0])/2, (avg_r3.item()+out_r['partial'][1])/2]
                 out_r['single'] = [(avg_r4.item()+out_r['single'][0])/2, (avg_r5.item()+out_r['single'][1])/2]
             
-            threshold_scalar = 0.9
-            c_threshold_total = threshold_data[7] #(avg_r0.item() + avg_r1.item())/2
+            threshold_scalar = 0.7
+            c_threshold_total = threshold_data[len(threshold_data)-1] #(avg_r0.item() + avg_r1.item())/2
             c_threshold_partial = threshold_data[3] * threshold_scalar #(avg_r2.item() + avg_r3.item())/2
-            c_threshold_single = threshold_data[0] #(avg_r4.item() + avg_r5.item())/2
+            c_threshold_single = threshold_data[0] * 0.9 #(avg_r4.item() + avg_r5.item())/2
             
             for l in range(len(r_lst0)):
                 r_original = r_lst0[l]
@@ -638,8 +639,8 @@ if change_detect_2_flag == 1:
     ax.bar(x[2] + gap_width, out_r['single'][1], width=bar_width, label = 'single, change')
     ax.set_ylabel('r')
     ax.legend()
-    ax.set_title('Correlation for location change detection, 50 trials')
-    plt.savefig('change_detect_bar.png')
+    ax.set_title('Correlation for location change detection, 400 trials')
+    plt.savefig('change_detect/change_detect_bar.png')
     plt.close()
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -654,9 +655,9 @@ if change_detect_2_flag == 1:
     ax.bar(x[1], out_dprime['partial'], width=bar_width, label='partial context')
     ax.bar(x[2], out_dprime['single'], width=bar_width, label='single context')
     ax.legend()
-    ax.set_title('dprime for location change detection, 50 trials')
+    ax.set_title('dprime for location change detection, 400 trials')
     ax.set_ylabel('dprime')
-    plt.savefig('change_detect_accuracy_bar.png')
+    plt.savefig('change_detect/change_detect_accuracy_bar.png')
     plt.close()
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -671,7 +672,7 @@ if change_detect_2_flag == 1:
     ax.bar(x[1], out_dprime['partial'], width=bar_width, label='partial context')
     ax.bar(x[2], out_dprime['single'], width=bar_width, label='single context')
     ax.legend()
-    ax.set_title('accuracy for location change detection, 50 trials')
+    ax.set_title('accuracy for location change detection, 400 trials')
     ax.set_ylabel('%')
     plt.savefig('change_detect_accuracy_bar_nodprime.png')
 
